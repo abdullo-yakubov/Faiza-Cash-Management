@@ -4,6 +4,8 @@ const fields=Object.fromEntries(cfg.ConnectionStrings__CashDb.split(';').map(x=>
 assert.match(database,/^faiza_[a-z0-9]+_test$/);
 const env={...process.env,PGPASSWORD:fields.Password};const bin=process.env.PG_BIN||'C:/Program Files/PostgreSQL/18/bin';
 const run=(tool,args,input)=>{const r=spawnSync(bin+'/'+tool+'.exe',['-h','127.0.0.1','-U',fields.Username,'-d',database,'-w',...args],{env,input,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+const sessions=Number(run('psql',['-At','-v','ON_ERROR_STOP=1'],`SELECT count(*) FROM pg_stat_activity WHERE datname='${database}' AND pid <> pg_backend_pid();`));
+assert.equal(sessions,0,`Backup test requires an isolated database. Found ${sessions} other active session(s) on ${database}; stop the test backend/frontend and retry.`);
 const totals=()=>run('psql',['-At','-v','ON_ERROR_STOP=1'],`SELECT json_build_object('operations',(SELECT count(*) FROM "Operations"),'posted',(SELECT count(*) FROM "Operations" WHERE "Status"='posted'),'audit',(SELECT count(*) FROM "AuditEvents"),'signed',(SELECT sum(CASE WHEN "Type"='income' THEN "Amount" ELSE -"Amount" END) FROM "Operations" WHERE "Status"='posted'));`);
 const before=totals();
 run('pg_dump',['-Fc','-f','.runtime/backup-test.dump']);

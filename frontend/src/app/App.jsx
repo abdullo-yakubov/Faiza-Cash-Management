@@ -18,14 +18,16 @@ import {UsersPage} from '../pages/UsersPage';
 import {ReportsPage} from '../pages/ReportsPage';
 import {AuditFilters} from '../components/AuditFilters';
 import {AuditPage} from '../pages/AuditPage';
+import {BranchesPage,TransfersPage,DebtsPage,DashboardV5,RepresentativesPage,ShiftsPage} from '../pages/V5Pages.jsx';
 
 const navigation=[
-  {label:'Работа с деньгами',items:[['overview','Обзор',LayoutDashboard],['operations','Операции',ArrowLeftRight],['reports','Отчёты',ChartNoAxesCombined]]},
+  {label:'Работа с деньгами',items:[['overview','Обзор',LayoutDashboard],['dashboard','Dashboard V5',ChartNoAxesCombined],['operations','Операции',ArrowLeftRight],['shifts','Кассовые смены',Wallet],['transfers','Переводы',ArrowLeftRight],['debts','Задолженности',Wallet],['reports','Отчёты',ChartNoAxesCombined]]},
+  {label:'Организация',items:[['branches','Филиалы',Building2],['representatives','Торговые представители',Users]]},
   {label:'Справочники',items:[['cashboxes','Кассы',Wallet],['counterparties','Контрагенты',Users],['categories','Категории',Tags]]},
   {label:'Администрирование',items:[['audit','Журнал аудита',ShieldCheck],['users','Пользователи',Users],['settings','Настройки',Settings]]}
 ];
 const titles=Object.fromEntries(navigation.flatMap(g=>g.items.map(([id,title])=>[id,title])));
-const subtitles={overview:'Остатки и движение наличных по проведённым документам.',operations:'Черновики и проведённые кассовые документы.',reports:'Движение денег, категории и учебная кассовая книга.',cashboxes:'Доступные кассы и текущие остатки.',counterparties:'Клиенты, поставщики и сотрудники.',categories:'Категории прихода и расхода.',audit:'Кто, когда и какое действие выполнил.',users:'Сотрудники, роли и доступ к кассам.',settings:'Параметры организации и вашей учётной записи.'};
+const subtitles={overview:'Остатки и движение наличных по проведённым документам.',dashboard:'KPI по кассам, филиалам и задолженностям.',operations:'Черновики и проведённые кассовые документы.',shifts:'Открытие, закрытие и история кассовых смен.',transfers:'Атомарные перемещения денежных средств между кассами.',debts:'Контрагенты, основания и частичные оплаты.',branches:'Филиалы, кассы и доступы сотрудников.',representatives:'Учебный сценарий передачи денег от торгового представителя.',reports:'Движение денег, категории и учебная кассовая книга.',cashboxes:'Доступные кассы и текущие остатки.',counterparties:'Клиенты, поставщики и сотрудники.',categories:'Категории прихода и расхода.',audit:'Кто, когда и какое действие выполнил.',users:'Сотрудники, роли и доступ к кассам.',settings:'Параметры организации и вашей учётной записи.'};
 export default function App(){
   const [user,setUser]=useState(null),[boot,setBoot]=useState(true),[route,navigate]=useRoute();
   const [revision,setRevision]=useState(0),[modal,setModal]=useState(null),[busy,setBusy]=useState(false),[busyLabel,setBusyLabel]=useState(''),[formError,setFormError]=useState(''),[actionError,setActionError]=useState(''),[notice,setNotice]=useState(''),[mobile,setMobile]=useState(false),[theme,setTheme]=useState(()=>localStorage.getItem('faiza-theme')||'light');
@@ -44,8 +46,8 @@ export default function App(){
   },[mobile]);
   const refresh=()=>setRevision(v=>v+1);
   const resources=usePageData('resources:'+user?.id+':'+revision,async signal=>{
-    const [boxes,categories,parties,org,roles,access,auditOptions]=await Promise.all([...['/cashboxes','/categories','/counterparties','/settings','/roles'].map(path=>api(path,{signal})),admin?api('/access',{signal}):Promise.resolve([]),auditAllowed?api('/audit/options',{signal}):Promise.resolve(null)]);
-    return {boxes,categories,parties,org,roles,access,auditOptions};
+    const [boxes,categories,parties,org,roles,access,auditOptions,representatives]=await Promise.all([...['/cashboxes','/categories','/counterparties','/settings','/roles'].map(path=>api(path,{signal})),admin?api('/access',{signal}):Promise.resolve([]),auditAllowed?api('/audit/options',{signal}):Promise.resolve(null),admin?api('/users?pageSize=100',{signal}):Promise.resolve({items:[]})]);
+    return {boxes,categories,parties,org,roles,access,auditOptions,representatives};
   },enabled);
   const refs=resources.data||{boxes:[],categories:[],parties:[],org:{name:'ООО «Фаиза»',currency:'TJS'},roles:[]};
   useEffect(()=>{if(resources.status==='success'&&!refs.boxes.some(b=>String(b.id)===route.box)){navigate({box:String(refs.boxes[0]?.id||''),index:1},{replace:true});}},[resources.status,resources.data,route.box,navigate]);
@@ -63,6 +65,12 @@ export default function App(){
       if(route.page==='reports'){base.set('page',route.index);base.set('pageSize',15);return {summary,points,distribution,book:await api('/reports/cashbook?'+base,{signal})};}
       base.set('pageSize',6);base.set('sort','date_desc');return {summary,points,distribution,rows:await api('/operations?'+base,{signal})};
     }
+    if(route.page==='dashboard')return await api('/dashboard',{signal});
+    if(route.page==='branches')return await api('/branches',{signal});
+    if(route.page==='transfers')return {boxes:refs.boxes};
+    if(route.page==='shifts')return {boxes:refs.boxes};
+    if(route.page==='debts')return {rows:await api('/settlements',{signal}),parties:refs.parties,boxes:refs.boxes};
+    if(route.page==='representatives')return {users:refs.representatives,parties:refs.parties,boxes:refs.boxes};
     if(route.page==='users')return usersPageContract(await api('/users?'+new URLSearchParams({page:route.index,pageSize:15,...(route.q?{q:route.q}:{})}),{signal}));
     if(route.page==='audit'){
       const filter=new URLSearchParams({page:route.index,pageSize:15,from:route.from+'T00:00:00+05:00',to:route.to+'T23:59:59.9999999+05:00',includeTechnical:route.technical});
@@ -131,6 +139,12 @@ export default function App(){
     {resources.status==='success'&&route.page==='audit'&&auditAllowed&&<AuditFilters route={route} options={refs.auditOptions} onChange={change}/>}
     <ErrorBoundary resetKey={route.page+':'+revision} onRetry={refresh} onHome={()=>go('overview')}><PageState state={state} onRetry={refresh} onLogin={signIn}>
       {body?.emptyCashbox?<section className="panel"><Empty text={admin?'Добавьте первую кассу в разделе «Кассы». Затем создайте категории и зарегистрируйте приход.':'Доступных касс нет. Попросите администратора назначить вам доступ.'}/></section>:<>
+      {route.page==='dashboard'&&body&&<DashboardV5 currency={refs.org.currency} boxes={refs.boxes}/>} 
+      {route.page==='branches'&&body&&<BranchesPage admin={admin} onChange={refresh}/>} 
+      {route.page==='transfers'&&body&&<TransfersPage boxes={body.boxes} currency={refs.org.currency}/>} 
+      {route.page==='shifts'&&body&&<ShiftsPage boxes={body.boxes} currency={refs.org.currency} canWrite={canWrite}/>} 
+      {route.page==='debts'&&body&&<DebtsPage parties={body.parties} boxes={body.boxes} currency={refs.org.currency} canWrite={accountant||Boolean(user.roles.includes('manager'))}/>} 
+      {route.page==='representatives'&&body&&<RepresentativesPage users={body.users} parties={body.parties} boxes={body.boxes}/>} 
       {route.page==='overview'&&body&&<><FinanceStats summary={body.summary} currency={refs.org.currency}/><FinanceCharts points={body.points} distribution={body.distribution} currency={refs.org.currency}/><section className="panel"><div className="panel-heading"><div><h2>Последние операции</h2><p>Черновики не влияют на остаток.</p></div><button className="text-btn" onClick={()=>go('operations')}>Открыть журнал</button></div><OperationsTable data={body.rows} currency={refs.org.currency} onDetails={details} preview/></section></>}
       {route.page==='operations'&&body&&<section className="panel"><div className="panel-heading"><h2>Журнал операций</h2><div className="row-actions"><button className="button secondary" disabled={busy} onClick={()=>exportFile('csv')}>Скачать CSV</button><button className="button secondary" disabled={busy} onClick={()=>exportFile('pdf')}>Скачать PDF</button></div></div><p className="export-explanation">Экспорт: все найденные записи с выбранными фильтрами, включая черновики, если они выбраны.</p><OperationsTable data={body.rows} currency={refs.org.currency} onDetails={details} onPage={onPage}/></section>}
       {route.page==='reports'&&body&&<ReportsPage book={body.book} points={body.points} distribution={body.distribution} currency={refs.org.currency} onPage={onPage} onExport={exportFile} onDetails={details} busy={busy}/>}

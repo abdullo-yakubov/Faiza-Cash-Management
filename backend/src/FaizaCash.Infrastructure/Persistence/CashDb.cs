@@ -22,7 +22,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         return base.SaveChangesAsync(cancellationToken);
     }
     public DbSet<User> Users => Set<User>(); public DbSet<Role> Roles => Set<Role>(); public DbSet<UserRole> UserRoles => Set<UserRole>(); public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>(); public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>(); public DbSet<Currency> Currencies => Set<Currency>(); public DbSet<Cashbox> Cashboxes => Set<Cashbox>(); public DbSet<CashboxOpening> Openings => Set<CashboxOpening>(); public DbSet<Category> Categories => Set<Category>(); public DbSet<Counterparty> Counterparties => Set<Counterparty>(); public DbSet<DocumentType> DocumentTypes => Set<DocumentType>(); public DbSet<CashOperation> Operations => Set<CashOperation>(); public DbSet<DocumentSequence> Sequences => Set<DocumentSequence>(); public DbSet<CashShift> Shifts => Set<CashShift>(); public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>();
+    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<CashAccess>().HasKey(x=>new { x.UserId,x.CashboxId });
@@ -41,7 +41,10 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<AuditEvent>().HasOne<User>().WithMany().HasForeignKey(x=>x.UserId).OnDelete(DeleteBehavior.SetNull);
 
         b.Entity<Currency>().HasIndex(x=>x.Code).IsUnique();
+        b.Entity<Branch>().HasIndex(x=>x.Code).IsUnique();
+        b.Entity<Branch>().ToTable(t=>t.HasCheckConstraint("CK_Branches_Code","char_length(btrim(\"Code\")) BETWEEN 2 AND 24"));
         b.Entity<Cashbox>().HasIndex(x=>x.Code).IsUnique();
+        b.Entity<Cashbox>().HasOne(x=>x.Branch).WithMany().HasForeignKey(x=>x.BranchId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cashbox>().HasOne(x=>x.Currency).WithMany().HasForeignKey(x=>x.CurrencyId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cashbox>().HasOne(x=>x.Opening).WithOne(x=>x.Cashbox).HasForeignKey<CashboxOpening>(x=>x.CashboxId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Cashbox>().Property(x=>x.BalanceLimit).HasPrecision(18,2);
@@ -52,6 +55,11 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<Category>().HasOne<Category>().WithMany().HasForeignKey(x=>x.ParentId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Category>().ToTable(t=>t.HasCheckConstraint("CK_Categories_Type","\"Type\" IN ('income','expense')"));
         b.Entity<Counterparty>().ToTable(t=>t.HasCheckConstraint("CK_Counterparties_Kind","\"Kind\" IN ('client','supplier','employee','other')"));
+        b.Entity<Settlement>().Property(x=>x.TotalAmount).HasPrecision(18,2); b.Entity<Settlement>().Property(x=>x.PaidAmount).HasPrecision(18,2);
+        b.Entity<Settlement>().HasOne(x=>x.Counterparty).WithMany().HasForeignKey(x=>x.CounterpartyId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Settlement>().HasIndex(x=>new{x.CounterpartyId,x.Status});
+        b.Entity<Settlement>().ToTable(t=>{t.HasCheckConstraint("CK_Settlements_Direction","\"Direction\" IN ('receivable','payable')");t.HasCheckConstraint("CK_Settlements_Basis","\"BasisType\" IN ('order','delivery','return','manual') AND char_length(btrim(\"BasisReference\")) BETWEEN 1 AND 120");t.HasCheckConstraint("CK_Settlements_Amounts","\"TotalAmount\" > 0 AND \"PaidAmount\" >= 0 AND \"PaidAmount\" <= \"TotalAmount\"");});
+        b.Entity<PaymentAllocation>().Property(x=>x.Amount).HasPrecision(18,2); b.Entity<PaymentAllocation>().HasIndex(x=>new{x.SettlementId,x.OperationId}).IsUnique(); b.Entity<PaymentAllocation>().HasOne(x=>x.Settlement).WithMany(x=>x.Allocations).HasForeignKey(x=>x.SettlementId).OnDelete(DeleteBehavior.Restrict); b.Entity<PaymentAllocation>().HasOne(x=>x.Operation).WithMany().HasForeignKey(x=>x.OperationId).OnDelete(DeleteBehavior.Restrict); b.Entity<PaymentAllocation>().HasOne<User>().WithMany().HasForeignKey(x=>x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
         b.Entity<DocumentType>(entity=>
         {
             entity.Property<string>("NormalizedCode").IsRequired().HasComputedColumnSql("upper(btrim(\"Code\"))",stored:true);
@@ -68,12 +76,14 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<CashOperation>().HasOne<User>().WithMany().HasForeignKey(x=>x.PostedBy).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashOperation>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.ReversalOfId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashOperation>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.ReversalId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashOperation>().HasOne(x=>x.Transfer).WithMany().HasForeignKey(x=>x.TransferId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashOperation>().Property(x=>x.Version).IsConcurrencyToken();
         b.Entity<CashOperation>().Property(x=>x.Amount).HasPrecision(18,2);
         b.Entity<CashOperation>().HasIndex(x=>new{x.CreatedBy,x.RequestKey}).IsUnique();
         b.Entity<CashOperation>().HasIndex(x=>x.ReversalOfId).IsUnique().HasFilter("\"ReversalOfId\" IS NOT NULL");
         b.Entity<CashOperation>().HasIndex(x=>x.ReversalId).IsUnique().HasFilter("\"ReversalId\" IS NOT NULL");
         b.Entity<CashOperation>().HasIndex(x=>new{x.CashboxId,x.Date,x.PostingSeq});
+        b.Entity<CashOperation>().HasIndex(x=>x.TransferId);
         b.Entity<CashOperation>().HasIndex(x=>new{x.CashboxId,x.DocumentNumber}).IsUnique().HasFilter("\"DocumentNumber\" IS NOT NULL");
         b.Entity<CashOperation>().ToTable(t=>
         {
@@ -89,5 +99,19 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<DocumentSequence>().ToTable(t=>t.HasCheckConstraint("CK_Sequences_Values","\"Type\" IN ('income','expense') AND \"Year\" BETWEEN 1 AND 9999 AND \"LastNumber\" >= 0"));
         b.Entity<CashShift>().HasIndex(x=>new{x.CashboxId,x.Date}).IsUnique();
         b.Entity<CashShift>().HasOne<Cashbox>().WithMany().HasForeignKey(x=>x.CashboxId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashShift>().Property(x=>x.OpeningBalance).HasPrecision(18,2);
+        b.Entity<CashShift>().Property(x=>x.ClosingBalance).HasPrecision(18,2);
+        b.Entity<CashShift>().Property(x=>x.ClosingDifference).HasPrecision(18,2);
+        b.Entity<CashShift>().HasOne<User>().WithMany().HasForeignKey(x=>x.OpenedBy).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashShift>().HasOne<User>().WithMany().HasForeignKey(x=>x.ClosedBy).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashShift>().ToTable(t=>t.HasCheckConstraint("CK_CashShifts_Status","\"Status\" IN ('open','closed')"));
+        b.Entity<CashTransfer>().Property(x=>x.Amount).HasPrecision(18,2);
+        b.Entity<CashTransfer>().HasIndex(x=>x.RequestKey).IsUnique();
+        b.Entity<CashTransfer>().HasOne<Cashbox>().WithMany().HasForeignKey(x=>x.SourceCashboxId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashTransfer>().HasOne<Cashbox>().WithMany().HasForeignKey(x=>x.TargetCashboxId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashTransfer>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.SourceOperationId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashTransfer>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.TargetOperationId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashTransfer>().ToTable(t=>t.HasCheckConstraint("CK_CashTransfers_Values","\"SourceCashboxId\" <> \"TargetCashboxId\" AND \"Amount\" > 0"));
+        b.Entity<RepresentativeReceipt>().Property(x=>x.Amount).HasPrecision(18,2); b.Entity<RepresentativeReceipt>().HasIndex(x=>x.RequestKey).IsUnique(); b.Entity<RepresentativeReceipt>().HasOne(x=>x.Counterparty).WithMany().HasForeignKey(x=>x.CounterpartyId).OnDelete(DeleteBehavior.Restrict); b.Entity<RepresentativeReceipt>().ToTable(t=>{t.HasCheckConstraint("CK_RepresentativeReceipts_Amount","\"Amount\" > 0");t.HasCheckConstraint("CK_RepresentativeReceipts_Status","\"Status\" IN ('collected','handed_over','accepted','cancelled')");t.HasCheckConstraint("CK_RepresentativeReceipts_Basis","\"BasisType\" IN ('order','delivery','return','manual')");});
     }
 }

@@ -99,16 +99,75 @@ app.MapPatch("/api/users/{id:guid}", [Authorize(Roles = Admin)] async (Guid id, 
 app.MapGet("/api/roles", [Authorize] async (CashDb db) => Results.Ok(await db.Roles.AsNoTracking().OrderBy(x => x.Code).ToListAsync()));
 
 app.MapGet("/api/currencies", [Authorize] async (CashDb db) => Results.Ok(await db.Currencies.AsNoTracking().OrderBy(x => x.Code).ToListAsync()));
-app.MapGet("/api/cashboxes", [Authorize] async (HttpContext ctx,CashDb db,ICashboxAccess access,bool? active = null) => {var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted);return Results.Ok(await db.Cashboxes.Include(x => x.Currency).Where(x => allowed.Contains(x.Id)&&(!active.HasValue || x.Active == active)).Select(x => new { x.Id, x.Code, x.Name, currency = x.Currency.Code, x.BalanceLimit, x.Active }).ToListAsync());});
+app.MapGet("/api/branches", [Authorize] async (CashDb db, bool? active = null) => Results.Ok(await db.Branches.AsNoTracking().Where(x=>!active.HasValue||x.Active==active).OrderBy(x=>x.Name).ToListAsync()));
+app.MapPost("/api/branches", [Authorize(Roles = Admin)] async (BranchInput x, CashDb db, Audit audit, HttpContext ctx) => { var code=x.Code?.Trim().ToUpperInvariant(); var name=x.Name?.Trim(); var city=x.City?.Trim(); if(string.IsNullOrWhiteSpace(code)||code.Length>24||string.IsNullOrWhiteSpace(name)||name.Length>160||string.IsNullOrWhiteSpace(city)||city.Length>100||code.Contains('\0')||name.Contains('\0')||city.Contains('\0')) return Results.BadRequest(); if(await db.Branches.AnyAsync(b=>b.Code==code)) return Results.Conflict(); var branch=new Branch{Code=code,Name=name,City=city}; db.Branches.Add(branch); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(),"branch_created","branch",branch.Id,new{branch.Code,branch.City}); return Results.Created($"/api/branches/{branch.Id}",branch); });
+app.MapPatch("/api/branches/{id:long}", [Authorize(Roles = Admin)] async (long id, BranchPatch x, CashDb db, Audit audit, HttpContext ctx) => { var branch=await db.Branches.FindAsync(id); if(branch is null)return Results.NotFound(); if(x.Name is not null){if(string.IsNullOrWhiteSpace(x.Name)||x.Name.Trim().Length>160)return Results.BadRequest();branch.Name=x.Name.Trim();} if(x.City is not null){if(string.IsNullOrWhiteSpace(x.City)||x.City.Trim().Length>100)return Results.BadRequest();branch.City=x.City.Trim();} if(x.Active.HasValue)branch.Active=x.Active.Value; await db.SaveChangesAsync(); await audit.Add(ctx.UserId(),"branch_updated","branch",id,new{x.Name,x.City,x.Active}); return Results.NoContent(); });
+app.MapGet("/api/cashboxes", [Authorize] async (HttpContext ctx,CashDb db,ICashboxAccess access,bool? active = null, long? branchId = null) => {var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted);return Results.Ok(await db.Cashboxes.Include(x => x.Currency).Include(x=>x.Branch).Where(x => allowed.Contains(x.Id)&&(!active.HasValue || x.Active == active)&&(!branchId.HasValue||x.BranchId==branchId)).Select(x => new { x.Id, x.Code, x.Name, branchId=x.BranchId, branch=x.Branch.Name, city=x.Branch.City, currency = x.Currency.Code, x.BalanceLimit, x.Active }).ToListAsync());});
 app.MapPost("/api/cashboxes", [Authorize(Roles = Admin)] async (CashboxInput x, HttpContext ctx, CashDb db, Audit audit) =>
 {
-    if (string.IsNullOrWhiteSpace(x.Code) || x.Code.Trim().Length>24 || !System.Text.RegularExpressions.Regex.IsMatch(x.Code.Trim(),"^[A-Za-z0-9-]+$") || string.IsNullOrWhiteSpace(x.Name) || x.Name.Trim().Length>160 || x.Name.Contains('\0') || x.BalanceLimit < 0 || !await db.Currencies.AnyAsync(c => c.Id == x.CurrencyId)) return Results.Problem("Некорректные реквизиты кассы.", statusCode: 400);
+    if (string.IsNullOrWhiteSpace(x.Code) || x.Code.Trim().Length>24 || !System.Text.RegularExpressions.Regex.IsMatch(x.Code.Trim(),"^[A-Za-z0-9-]+$") || string.IsNullOrWhiteSpace(x.Name) || x.Name.Trim().Length>160 || x.Name.Contains('\0') || x.BalanceLimit < 0 || !await db.Currencies.AnyAsync(c => c.Id == x.CurrencyId) || !await db.Branches.AnyAsync(b=>b.Id==x.BranchId&&b.Active)) return Results.Problem("Некорректные реквизиты кассы или филиала.", statusCode: 400);
     if(!await db.Currencies.AnyAsync(c=>c.Id==x.CurrencyId && c.Code==db.Organizations.Select(o=>o.Currency).First())) return Results.Problem("Касса должна использовать валюту организации.",statusCode:400);
     var code = x.Code.Trim().ToUpperInvariant(); if (await db.Cashboxes.AnyAsync(c => c.Code == code)) return Results.Problem("Код кассы уже существует.", statusCode: 409);
-    var c = new Cashbox { Code = code, Name = x.Name.Trim(), CurrencyId = x.CurrencyId, BalanceLimit = x.BalanceLimit }; db.Cashboxes.Add(c); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "cashbox_created", "cashbox", c.Id, new { c.Code }); return Results.Created($"/api/cashboxes/{c.Id}", new {c.Id,c.Code,c.Name,c.Active});
+    var c = new Cashbox { Code = code, Name = x.Name.Trim(), BranchId=x.BranchId, CurrencyId = x.CurrencyId, BalanceLimit = x.BalanceLimit }; db.Cashboxes.Add(c); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "cashbox_created", "cashbox", c.Id, new { c.Code, c.BranchId }); return Results.Created($"/api/cashboxes/{c.Id}", new {c.Id,c.Code,c.Name,c.BranchId,c.Active});
 });
 app.MapPatch("/api/cashboxes/{id:long}", [Authorize(Roles = Admin)] async (long id, CashboxPatch x, CashDb db) => { var c = await db.Cashboxes.FindAsync(id); if (c is null) return Results.NotFound(); if(x.Name is not null && (string.IsNullOrWhiteSpace(x.Name)||x.Name.Trim().Length>160||x.Name.Contains('\0')))return Results.Problem("Укажите название кассы длиной до 160 символов.",statusCode:400); if(x.BalanceLimit<0)return Results.Problem("Лимит не может быть отрицательным.",statusCode:400); if (x.Name is not null) c.Name = x.Name.Trim(); if (x.Active.HasValue) c.Active = x.Active.Value; if (x.BalanceLimit.HasValue) c.BalanceLimit = x.BalanceLimit; await db.SaveChangesAsync(); return Results.NoContent(); });
 app.MapGet("/api/cashboxes/{id:long}/balance", [Authorize] async (long id, DateOnly? date,HttpContext ctx,CashDb db,ICashboxAccess access) => {await access.Require(ctx.UserId(),id,ctx.RequestAborted);return Results.Ok(await Balance(db, id, date ?? Local.Today));});
+app.MapGet("/api/shifts", [Authorize] async (long cashboxId, DateOnly? date, HttpContext ctx, CashDb db, ICashboxAccess access) =>
+{
+    await access.Require(ctx.UserId(), cashboxId, ctx.RequestAborted);
+    var query=db.Shifts.AsNoTracking().Where(x=>x.CashboxId==cashboxId);
+    if(date.HasValue) query=query.Where(x=>x.Date==date.Value);
+    return Results.Ok(await query.OrderByDescending(x=>x.Date).Take(30).ToListAsync(ctx.RequestAborted));
+});
+app.MapPost("/api/shifts/open", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (ShiftOpenInput x, HttpContext ctx, CashDb db, ICashboxAccess access) =>
+{
+    await access.Require(ctx.UserId(),x.CashboxId,ctx.RequestAborted);
+    if(x.OpeningBalance<0 || x.Date>DateOnly.FromDateTime(DateTime.UtcNow)) return Results.BadRequest();
+    await using var tx=await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+    var box=await db.Cashboxes.FromSqlInterpolated($"SELECT * FROM \"Cashboxes\" WHERE \"Id\"={x.CashboxId} FOR UPDATE").SingleOrDefaultAsync(ctx.RequestAborted);
+    if(box is null || !box.Active) return Results.NotFound();
+    if(await db.Shifts.AnyAsync(s=>s.CashboxId==x.CashboxId&&s.Status=="open",ctx.RequestAborted)) return Results.Conflict();
+    if(box.BalanceLimit.HasValue && x.OpeningBalance>box.BalanceLimit.Value) return Results.BadRequest();
+    var shift=new CashShift{CashboxId=x.CashboxId,Date=x.Date,OpeningBalance=x.OpeningBalance,OpenedBy=ctx.UserId()};
+    db.Shifts.Add(shift); await db.SaveChangesAsync(ctx.RequestAborted); await tx.CommitAsync(ctx.RequestAborted); return Results.Created($"/api/shifts/{shift.Id}",shift);
+});
+app.MapPost("/api/shifts/{id:long}/close", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id, ShiftCloseInput x, HttpContext ctx, CashDb db, ICashboxAccess access) =>
+{
+    await using var tx=await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+    var shift=await db.Shifts.FromSqlInterpolated($"SELECT * FROM \"CashShifts\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(ctx.RequestAborted);
+    if(shift is null) return Results.NotFound();
+    await access.Require(ctx.UserId(),shift.CashboxId,ctx.RequestAborted);
+    if(!ShiftRules.CanClose(shift.Status,shift.OpeningBalance,x.ClosingBalance)) return Results.Conflict();
+    var expected=await Balance(db,shift.CashboxId,shift.Date);
+    shift.ClosingBalance=x.ClosingBalance; shift.ClosingDifference=ShiftRules.ClosingDifference(expected.Balance,x.ClosingBalance); shift.Status="closed"; shift.ClosedBy=ctx.UserId(); shift.ClosedAt=DateTime.UtcNow;
+    await db.SaveChangesAsync(ctx.RequestAborted); await tx.CommitAsync(ctx.RequestAborted); return Results.Ok(shift);
+});
+
+app.MapPost("/api/transfers", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (CashTransferInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
+{
+    if (x.SourceCashboxId == x.TargetCashboxId || x.Amount <= 0 || x.Amount != decimal.Round(x.Amount, 2) || x.Date > Local.Today || x.RequestKey == Guid.Empty || string.IsNullOrWhiteSpace(x.Description) || x.Description.Trim().Length > 500)
+        return Results.BadRequest();
+    await access.Require(ctx.UserId(), x.SourceCashboxId, ctx.RequestAborted); await access.Require(ctx.UserId(), x.TargetCashboxId, ctx.RequestAborted);
+    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ctx.RequestAborted);
+    var existing = await db.Transfers.AsNoTracking().SingleOrDefaultAsync(t=>t.RequestKey==x.RequestKey,ctx.RequestAborted);
+    if(existing is not null) return Results.Ok(existing);
+    var ids = new[]{x.SourceCashboxId,x.TargetCashboxId}.OrderBy(x=>x).ToArray();
+    var boxes = await db.Cashboxes.FromSqlInterpolated($"SELECT * FROM \"Cashboxes\" WHERE \"Id\" IN ({ids[0]},{ids[1]}) ORDER BY \"Id\" FOR UPDATE").ToListAsync(ctx.RequestAborted);
+    var source=boxes.SingleOrDefault(b=>b.Id==x.SourceCashboxId); var target=boxes.SingleOrDefault(b=>b.Id==x.TargetCashboxId);
+    if(source is null||target is null||!source.Active||!target.Active)return Results.NotFound();
+    var sourceBalance=await Balance(db,source.Id,x.Date); if(sourceBalance.Balance<x.Amount)return Results.Conflict();
+    if(target.BalanceLimit.HasValue && (await Balance(db,target.Id,x.Date)).Balance+x.Amount>target.BalanceLimit.Value)return Results.Conflict();
+    var expenseCategory=await db.Categories.Where(c=>c.Active&&c.Type=="expense").OrderBy(c=>c.Id).FirstOrDefaultAsync(ctx.RequestAborted);
+    var incomeCategory=await db.Categories.Where(c=>c.Active&&c.Type=="income").OrderBy(c=>c.Id).FirstOrDefaultAsync(ctx.RequestAborted);
+    if(expenseCategory is null||incomeCategory is null)return Results.Conflict();
+    var transfer=new CashTransfer{SourceCashboxId=source.Id,TargetCashboxId=target.Id,Date=x.Date,Amount=x.Amount,Description=x.Description.Trim(),RequestKey=x.RequestKey,CreatedBy=ctx.UserId()}; db.Transfers.Add(transfer); await db.SaveChangesAsync(ctx.RequestAborted);
+    var sourceSeq=(await db.Operations.Where(o=>o.CashboxId==source.Id&&o.Status=="posted").MaxAsync(o=>(long?)o.PostingSeq,ctx.RequestAborted)??0)+1;
+    var targetSeq=(await db.Operations.Where(o=>o.CashboxId==target.Id&&o.Status=="posted").MaxAsync(o=>(long?)o.PostingSeq,ctx.RequestAborted)??0)+1;
+    var year=(short)x.Date.Year; var sourceCounter=await db.Sequences.SingleOrDefaultAsync(s=>s.CashboxId==source.Id&&s.Type=="expense"&&s.Year==year,ctx.RequestAborted); var targetCounter=await db.Sequences.SingleOrDefaultAsync(s=>s.CashboxId==target.Id&&s.Type=="income"&&s.Year==year,ctx.RequestAborted); if(sourceCounter is null){sourceCounter=new DocumentSequence{CashboxId=source.Id,Type="expense",Year=year};db.Sequences.Add(sourceCounter);} if(targetCounter is null){targetCounter=new DocumentSequence{CashboxId=target.Id,Type="income",Year=year};db.Sequences.Add(targetCounter);} sourceCounter.LastNumber++; targetCounter.LastNumber++;
+    var sourceOp=new CashOperation{CashboxId=source.Id,Date=x.Date,Type="expense",Status="posted",Amount=x.Amount,Description="Межкассовый перевод: "+transfer.Description,CategoryId=expenseCategory.Id,DocumentNumber=$"ПЕРЕВОД-РКО-{source.Code}-{year}-{sourceCounter.LastNumber:D6}",PostingSeq=sourceSeq,TransferId=transfer.Id,RequestKey=Guid.NewGuid(),CreatedBy=ctx.UserId(),PostedBy=ctx.UserId(),PostedAt=DateTime.UtcNow};
+    var targetOp=new CashOperation{CashboxId=target.Id,Date=x.Date,Type="income",Status="posted",Amount=x.Amount,Description="Межкассовый перевод: "+transfer.Description,CategoryId=incomeCategory.Id,DocumentNumber=$"ПЕРЕВОД-ПКО-{target.Code}-{year}-{targetCounter.LastNumber:D6}",PostingSeq=targetSeq,TransferId=transfer.Id,RequestKey=Guid.NewGuid(),CreatedBy=ctx.UserId(),PostedBy=ctx.UserId(),PostedAt=DateTime.UtcNow};
+    db.Operations.AddRange(sourceOp,targetOp); await db.SaveChangesAsync(ctx.RequestAborted); transfer.SourceOperationId=sourceOp.Id; transfer.TargetOperationId=targetOp.Id; await db.SaveChangesAsync(ctx.RequestAborted); await audit.Add(ctx.UserId(),"cash_transfer_posted","cash_transfer",transfer.Id,new{transfer.SourceCashboxId,transfer.TargetCashboxId,transfer.Amount}); await tx.CommitAsync(ctx.RequestAborted); return Results.Created($"/api/transfers/{transfer.Id}",transfer);
+});
 
 app.MapGet("/api/categories", [Authorize] async (CashDb db, string? type, string? q) =>
 {
@@ -120,6 +179,27 @@ app.MapGet("/api/counterparties", [Authorize] async (CashDb db, string? q) =>
 {
     if(q?.Length>160||q?.Contains('\0')==true)return Results.Problem("Некорректный поисковый запрос.",statusCode:400);
     return Results.Ok(await db.Counterparties.Where(x=>q==null||x.Name.Contains(q)).OrderBy(x=>x.Name).ToListAsync());
+});
+app.MapGet("/api/settlements", [Authorize] async (CashDb db, long? counterpartyId, string? status) => Results.Ok(await db.Settlements.AsNoTracking().Include(x=>x.Counterparty).Where(x=>(!counterpartyId.HasValue||x.CounterpartyId==counterpartyId)&& (status==null||x.Status==status)).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Id,x.CounterpartyId,counterparty=x.Counterparty.Name,x.Direction,x.BasisType,x.BasisReference,x.TotalAmount,x.PaidAmount,remaining=x.TotalAmount-x.PaidAmount,x.Status,x.DueDate}).ToListAsync()));
+app.MapPost("/api/settlements", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (SettlementInput x, CashDb db, Audit audit, HttpContext ctx) =>
+{
+    var direction=x.Direction?.Trim().ToLowerInvariant(); var basis=x.BasisType?.Trim().ToLowerInvariant(); var reference=x.BasisReference?.Trim();
+    if(!await db.Counterparties.AnyAsync(c=>c.Id==x.CounterpartyId&&c.Active)||direction is not ("receivable" or "payable")||basis is not ("order" or "delivery" or "return" or "manual")||string.IsNullOrWhiteSpace(reference)||reference.Length>120||x.TotalAmount<=0||x.TotalAmount!=decimal.Round(x.TotalAmount,2)||x.DueDate<DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-20)))return Results.BadRequest();
+    var settlement=new Settlement{CounterpartyId=x.CounterpartyId,Direction=direction,BasisType=basis,BasisReference=reference,TotalAmount=x.TotalAmount,DueDate=x.DueDate}; db.Settlements.Add(settlement); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(),"settlement_created","settlement",settlement.Id,new{settlement.CounterpartyId,settlement.Direction,settlement.BasisType,settlement.BasisReference,settlement.TotalAmount}); return Results.Created($"/api/settlements/{settlement.Id}",settlement);
+});
+app.MapGet("/api/settlements/{id:long}/history", [Authorize] async (long id,CashDb db, HttpContext ctx, ICashboxAccess access) => { var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted); return Results.Ok(await db.PaymentAllocations.AsNoTracking().Where(x=>x.SettlementId==id&&allowed.Contains(x.Operation.CashboxId)).Include(x=>x.Operation).OrderBy(x=>x.CreatedAt).Select(x=>new{x.Id,x.SettlementId,x.OperationId,x.Amount,x.CreatedAt,operationType=x.Operation.Type,cashboxId=x.Operation.CashboxId,documentNumber=x.Operation.DocumentNumber}).ToListAsync()); });
+app.MapGet("/api/representative-receipts", [Authorize] async (CashDb db, Guid? representativeId, string? status, HttpContext ctx, ICashboxAccess access) => { var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted); return Results.Ok(await db.RepresentativeReceipts.AsNoTracking().Include(x=>x.Counterparty).Where(x=>allowed.Contains(x.CashboxId)&&(!representativeId.HasValue||x.RepresentativeId==representativeId)&&(status==null||x.Status==status)).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Id,x.RepresentativeId,x.CounterpartyId,counterparty=x.Counterparty.Name,x.BasisType,x.BasisReference,x.Amount,x.CashboxId,x.Status,x.RequestKey,x.CreatedAt,x.HandedOverAt,x.AcceptedBy,x.AcceptedAt}).ToListAsync()); });
+app.MapPost("/api/representative-receipts", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (RepresentativeReceiptInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { if(x.Amount<=0||string.IsNullOrWhiteSpace(x.BasisReference)||x.BasisType is not ("order" or "delivery" or "return" or "manual")) return Results.BadRequest(); await access.Require(ctx.UserId(),x.CashboxId,ctx.RequestAborted); var existing=await db.RepresentativeReceipts.SingleOrDefaultAsync(r=>r.RequestKey==x.RequestKey); if(existing is not null)return Results.Ok(existing); if(!await db.Users.AnyAsync(u=>u.Id==x.RepresentativeId&&u.Active))return Results.BadRequest(); if(!await db.Counterparties.AnyAsync(c=>c.Id==x.CounterpartyId&&c.Active))return Results.BadRequest(); var r=new RepresentativeReceipt{RepresentativeId=x.RepresentativeId,CounterpartyId=x.CounterpartyId,BasisType=x.BasisType!,BasisReference=x.BasisReference.Trim(),Amount=x.Amount,CashboxId=x.CashboxId,RequestKey=x.RequestKey,CreatedBy=ctx.UserId()}; db.RepresentativeReceipts.Add(r); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(),"representative_receipt_created","representative_receipt",r.Id,new{x.RepresentativeId,x.CounterpartyId,x.Amount}); return Results.Created($"/api/representative-receipts/{r.Id}",r); });
+app.MapPost("/api/representative-receipts/{id:long}/handover", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (long id, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { var r=await db.RepresentativeReceipts.FindAsync(id); if(r is null)return Results.NotFound(); await access.Require(ctx.UserId(),r.CashboxId,ctx.RequestAborted); if(r.Status!="collected")return Results.Conflict(); r.Status="handed_over";r.HandedOverAt=DateTime.UtcNow;await db.SaveChangesAsync();await audit.Add(ctx.UserId(),"representative_receipt_handed_over","representative_receipt",id,new{});return Results.Ok(r); });
+app.MapPost("/api/representative-receipts/{id:long}/accept", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { var r=await db.RepresentativeReceipts.FindAsync(id); if(r is null)return Results.NotFound(); await access.Require(ctx.UserId(),r.CashboxId,ctx.RequestAborted); if(r.Status!="handed_over")return Results.Conflict(); r.Status="accepted";r.AcceptedAt=DateTime.UtcNow;r.AcceptedBy=ctx.UserId();await db.SaveChangesAsync();await audit.Add(ctx.UserId(),"representative_receipt_accepted","representative_receipt",id,new{});return Results.Ok(r); });
+app.MapPost("/api/settlements/{id:long}/allocate", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (long id, PaymentAllocationInput x, HttpContext ctx, CashDb db, Audit audit) =>
+{
+    if(x.Amount<=0||x.Amount!=decimal.Round(x.Amount,2))return Results.BadRequest(); await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+    var settlement=await db.Settlements.FromSqlInterpolated($"SELECT * FROM \"Settlements\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(); if(settlement is null)return Results.NotFound();
+    var operation=await db.Operations.SingleOrDefaultAsync(o=>o.Id==x.OperationId); if(operation is null||operation.Status!="posted"||operation.CounterpartyId!=settlement.CounterpartyId)return Results.Problem("Платёж должен быть проведён и принадлежать тому же контрагенту.",statusCode:400); await ctx.RequestServices.GetRequiredService<ICashboxAccess>().Require(ctx.UserId(),operation.CashboxId,ctx.RequestAborted);
+    var expectedType=settlement.Direction=="receivable"?"income":"expense"; if(operation.Type!=expectedType)return Results.Problem("Направление платежа не соответствует задолженности.",statusCode:400);
+    if(await db.PaymentAllocations.AnyAsync(a=>a.SettlementId==id&&a.OperationId==x.OperationId))return Results.Conflict(); if(settlement.PaidAmount+x.Amount>settlement.TotalAmount)return Results.Problem("Сумма погашения превышает остаток долга.",statusCode:409);
+    var allocation=new PaymentAllocation{SettlementId=id,OperationId=x.OperationId,Amount=x.Amount,CreatedBy=ctx.UserId()}; settlement.PaidAmount+=x.Amount; settlement.Status=settlement.PaidAmount==settlement.TotalAmount?"paid":"partially_paid"; db.PaymentAllocations.Add(allocation); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(),"settlement_payment_allocated","settlement",id,new{allocation.OperationId,allocation.Amount,settlement.PaidAmount,settlement.Status}); await tx.CommitAsync(); return Results.Ok(new{settlement.Id,settlement.TotalAmount,settlement.PaidAmount,remaining=settlement.TotalAmount-settlement.PaidAmount,settlement.Status});
 });
 app.MapGet("/api/document-types", [Authorize] async (CashDb db) => Results.Ok(await db.DocumentTypes.OrderBy(x => x.Name).ToListAsync()));
 app.MapPost("/api/document-types", [Authorize(Roles = Admin + "," + Accountant)] async (DocumentTypeInput x, CashDb db) =>
@@ -213,6 +293,20 @@ app.MapGet("/api/summary", [Authorize] async (HttpContext ctx,CashDb db,ICashbox
     return Results.Ok(new{from=start,to=end,opening=opening.Balance,income,expense,closing=opening.Balance+income-expense});
 });
 app.MapGet("/api/settings", [Authorize] async (CashDb db)=>Results.Ok(await db.Organizations.SingleAsync()));
+app.MapGet("/api/dashboard", [Authorize] async (HttpContext ctx,CashDb db,ICashboxAccess access,DateOnly? from,DateOnly? to,long? branchId) =>
+{
+    var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted); var end=to??Local.Today; var start=from??end.AddDays(-30);
+    if(start>end||end.DayNumber-start.DayNumber>3660)return Results.BadRequest();
+    var boxes=await db.Cashboxes.AsNoTracking().Include(x=>x.Branch).Where(x=>allowed.Contains(x.Id)&&(!branchId.HasValue||x.BranchId==branchId)).ToListAsync(ctx.RequestAborted);
+    var balances=await Task.WhenAll(boxes.Select(async b=>new{b.Id,b.Code,b.Name,branchId=b.BranchId,branch=b.Branch.Name,balance=(await Balance(db,b.Id,end)).Balance}));
+    var totals=await db.Operations.AsNoTracking().Where(x=>allowed.Contains(x.CashboxId)&&x.Status=="posted"&&x.Date>=start&&x.Date<=end).GroupBy(_=>1).Select(g=>new{income=g.Where(x=>x.Type=="income").Sum(x=>x.Amount),expense=g.Where(x=>x.Type=="expense").Sum(x=>x.Amount)}).SingleOrDefaultAsync(ctx.RequestAborted);
+    var debt=await db.Settlements.AsNoTracking().Where(x=>x.Status!="paid").GroupBy(x=>x.Direction).Select(g=>new{direction=g.Key,total=g.Sum(x=>x.TotalAmount-x.PaidAmount)}).ToListAsync(ctx.RequestAborted);
+    var latest=await db.Operations.AsNoTracking().Where(x=>allowed.Contains(x.CashboxId)).OrderByDescending(x=>x.CreatedAt).Take(10).Select(x=>new{x.Id,x.CashboxId,x.Date,x.Type,x.Status,x.Amount,x.Description,x.DocumentNumber}).ToListAsync(ctx.RequestAborted);
+    var openShifts=await db.Shifts.AsNoTracking().Where(x=>allowed.Contains(x.CashboxId)&&x.Status=="open").Select(x=>new{x.Id,x.CashboxId,x.Date,x.OpeningBalance}).ToListAsync(ctx.RequestAborted);
+    var warnings=openShifts.Where(x=>x.OpeningBalance<0).Select(x=>new{code="negative_shift_opening",shiftId=x.Id}).ToList();
+    var flow=await db.Operations.AsNoTracking().Where(x=>boxes.Select(b=>b.Id).Contains(x.CashboxId)&&x.Status=="posted"&&x.Date>=start&&x.Date<=end).GroupBy(x=>new{x.Date,x.Type}).Select(g=>new{date=g.Key.Date,type=g.Key.Type,amount=g.Sum(x=>x.Amount)}).OrderBy(x=>x.date).ToListAsync(ctx.RequestAborted);
+    return Results.Ok(new{period=new{from=start,to=end},totalBalance=balances.Sum(x=>x.balance),income=totals?.income??0m,expense=totals?.expense??0m,balances,debts=debt,cashflow=flow,latestOperations=latest,openShifts,warnings});
+});
 app.MapGet("/api/operations/{id:long}/document.pdf", [Authorize] async (long id,HttpContext ctx,CashDb db,ICashboxAccess access,IPdfReport pdf)=>{
     var row=await db.Operations.Include(x=>x.Counterparty).SingleOrDefaultAsync(x=>x.Id==id);if(row==null)return Results.NotFound();var org=await db.Organizations.SingleAsync();
     await access.Require(ctx.UserId(),row.CashboxId,ctx.RequestAborted);

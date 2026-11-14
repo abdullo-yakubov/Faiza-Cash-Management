@@ -21,12 +21,16 @@ async function ok(path,options){const r=await request(path,options);assert.ok(r.
 async function test(name,run){try{await run();results.push({name,status:'passed'});console.log('PASS '+name);}catch(e){results.push({name,status:'failed',error:e.message});console.error('FAIL '+name+': '+e.message);throw e;}}
 let posted;
 const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Dushanbe'}).format(new Date());
-let box,income,expense,admin,cashier;
+ let box,secondBox,income,expense,admin,cashier;
 const draft=(type,amount,key=crypto.randomUUID(),boxId=box)=>ok('/operations',{method:'POST',body:{cashboxId:boxId,date,type,amount,description:'Integration test '+type,categoryId:type==='income'?income:expense,counterpartyId:null,documentTypeId:null,requestKey:key}});
 try{
  for(let i=0;i<80;i++){try{if((await fetch(base+'/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,250));if(i===79)throw new Error('API startup failed; inspect .runtime/integration-server.log');}
  await test('Migrations applied and initial administrator requires password change',async()=>{const r=await request('/auth/login',{method:'POST',body:{login:cfg.Seed__AdminLogin,password:cfg.Seed__AdminPassword},auth:null,cookies:null});assert.equal(r.status,200);cookie=r.headers.get('set-cookie').split(';')[0];const data=await r.json();token=data.accessToken;admin=data.user;assert.equal(admin.mustChangePassword,true);assert.equal((await request('/cashboxes')).status,403);await ok('/auth/change-password',{method:'POST',body:{oldPassword:cfg.Seed__AdminPassword,newPassword:crypto.randomBytes(16).toString('hex')+'Aa1'}});});
- const currencies=await ok('/currencies');const suffix=Date.now();box=(await ok('/cashboxes',{method:'POST',body:{code:'T'+suffix,name:'Test cashbox',currencyId:currencies[0].id,balanceLimit:null}})).id;
+ const currencies=await ok('/currencies');const suffix=Date.now();
+ await test('Branches are seeded and cashboxes expose branch context',async()=>{const branches=await ok('/branches');assert.ok(branches.some(x=>x.city==='Душанбе'));assert.ok(branches.some(x=>x.city==='Худжанд'));assert.ok(branches.some(x=>x.city==='Бохтар'));});
+ box=(await ok('/cashboxes',{method:'POST',body:{code:'T'+suffix,name:'Test cashbox',currencyId:currencies[0].id,balanceLimit:null,branchId:1}})).id;
+ secondBox=(await ok('/cashboxes',{method:'POST',body:{code:'T2'+suffix,name:'Target cashbox',currencyId:currencies[0].id,balanceLimit:null,branchId:2}})).id;
+ await test('Cashbox branch filter is enforced by the API',async()=>{const rows=await ok('/cashboxes?branchId=1');assert.ok(rows.some(x=>x.id===box&&x.branchId===1&&x.city==='Душанбе'));assert.deepEqual(await ok('/cashboxes?branchId=999999'),[]);});
  await test('Cashbox limit changes record before/after values and reject negative limits',async()=>{
   assert.equal((await request('/cashboxes/'+box,{method:'PATCH',body:{balanceLimit:500.25}})).status,204);
   const audit=await ok('/audit?pageSize=100');
@@ -64,6 +68,8 @@ try{
   finally{sql('DROP TRIGGER test_audit ON "AuditEvents"; DROP FUNCTION fail_test_audit();');}
  });
  await runReviewCases({test,request,ok,draft,box,date,income,expense,admin});
+ await test('Inter-cashbox transfer posts both legs atomically and is idempotent',async()=>{const beforeSource=(await ok('/cashboxes/'+box+'/balance')).balance;const beforeTarget=(await ok('/cashboxes/'+secondBox+'/balance')).balance;const key=crypto.randomUUID();const transfer=await ok('/transfers',{method:'POST',body:{sourceCashboxId:box,targetCashboxId:secondBox,date,amount:'5.00',description:'Branch replenishment',requestKey:key}});assert.equal((await ok('/cashboxes/'+box+'/balance')).balance,(Number(beforeSource)-5).toFixed(2));assert.equal((await ok('/cashboxes/'+secondBox+'/balance')).balance,(Number(beforeTarget)+5).toFixed(2));const repeated=await ok('/transfers',{method:'POST',body:{sourceCashboxId:box,targetCashboxId:secondBox,date,amount:'5.00',description:'Branch replenishment',requestKey:key}});assert.equal(repeated.id,transfer.id);assert.equal((await ok('/cashboxes/'+box+'/balance')).balance,(Number(beforeSource)-5).toFixed(2));});
+ await test('Partial settlement payments keep an auditable allocation history',async()=>{const partyName='Settlement '+suffix;await ok('/counterparties',{method:'POST',body:{name:partyName,kind:'client',taxCode:null,contact:null}});const party=(await ok('/counterparties?q='+encodeURIComponent(partyName))).find(x=>x.name===partyName);const settlement=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,direction:'receivable',basisType:'order',basisReference:'ORDER-'+suffix,totalAmount:'5.00',dueDate:date}});const makePayment=async amount=>{const row=await ok('/operations',{method:'POST',body:{cashboxId:box,date,type:'income',amount,description:'Settlement payment',categoryId:income,counterpartyId:party.id,documentTypeId:null,requestKey:crypto.randomUUID()}});return ok('/operations/'+row.id+'/post',{method:'POST',body:{expectedVersion:row.version}}).then(()=>row.id);};const first=await makePayment('2.00');const second=await makePayment('3.00');let state=await ok('/settlements/'+settlement.id+'/allocate',{method:'POST',body:{operationId:first,amount:'2.00'}});assert.equal(state.status,'partially_paid');state=await ok('/settlements/'+settlement.id+'/allocate',{method:'POST',body:{operationId:second,amount:'3.00'}});assert.equal(state.status,'paid');assert.equal(state.remaining,'0.00');assert.equal((await ok('/settlements/'+settlement.id+'/history')).length,2);});
  await test('CSV and PDF exports reject more than 10000 rows before producing a file',async()=>{
   sql(`INSERT INTO "Operations" ("CashboxId","Date","Type","Status","Amount","Description","CategoryId","DocumentNumber","PostingSeq","IsReversal","RequestKey","CreatedBy","PostedBy","PostedAt","CreatedAt","UpdatedAt","Version") SELECT ${box},'${date}'::date,'income','posted',0.01,'Export cap fixture',${income},'CAP-'||n::text,100000+n,false,gen_random_uuid(),'${admin.id}'::uuid,'${admin.id}'::uuid,NOW(),NOW(),NOW(),1 FROM generate_series(1,10001) AS n;`);
   for(const path of [`/reports/cash.csv?cashboxId=${box}&from=${date}&to=${date}`,`/reports/cash.pdf?cashboxId=${box}&from=${date}&to=${date}`]){
@@ -71,6 +77,14 @@ try{
   }
  });
  }else{posted=await draft('income','100.10');await ok('/operations/'+posted.id+'/post',{method:'POST',body:{expectedVersion:posted.version}});}
- if(suite!=='integration')await runSecurityCases({test,request,ok,draft,date,box,posted,suffix,cookie,admin,currencies,base});
+ if(suite!=='integration'){
+  // The security suite intentionally skips the integration fixtures above, but it still
+  // needs one valid category/document to verify ownership and posting behavior.
+  if(!posted){
+   posted=await draft('income','0.01');
+   posted=await ok('/operations/'+posted.id+'/post',{method:'POST',body:{expectedVersion:posted.version}});
+  }
+  await runSecurityCases({test,request,ok,draft,date,box,posted,suffix,cookie,admin,currencies,base});
+ }
  console.log(`Completed ${results.length} ${suite==='all'?'API':suite} checks on real PostgreSQL.`);
 }catch(e){console.error(e.message);process.exitCode=1;}finally{server.kill();fs.closeSync(log);fs.writeFileSync(`.runtime/${suite==='all'?'test':suite+'-test'}-results.json`,JSON.stringify({time:new Date().toISOString(),database:'PostgreSQL (dedicated test database)',suite,results},null,2));}

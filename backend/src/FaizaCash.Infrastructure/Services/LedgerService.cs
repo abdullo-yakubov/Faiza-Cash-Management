@@ -24,10 +24,21 @@ public sealed class LedgerService(CashDb db, Audit audit, ICashboxAccess access)
         if(opening!=null&&operation.Date<opening.Date)throw new BusinessException("Дата раньше начала учёта",400);
         var ledger=await db.Operations.Where(x=>x.CashboxId==box.Id&&x.Status=="posted").Select(x=>new PostingItem(x.Date,x.PostingSeq,x.Type,x.Amount)).ToListAsync(cancellationToken);
         var seq=(ledger.Max(x=>x.PostingSeq)??0)+1;
+        var shift=await db.Shifts.Where(x=>x.CashboxId==box.Id&&x.Date==operation.Date).SingleOrDefaultAsync(cancellationToken);
+        if(shift is null)
+        {
+            var current=BalanceRules.BalanceAt(opening?.Amount??0,ledger,operation.Date);
+            shift=new CashShift{CashboxId=box.Id,Date=operation.Date,OpeningBalance=current,OpenedBy=userId};
+            db.Shifts.Add(shift);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        if(shift.Status!="open")throw new BusinessException("Cash shift is closed",409);
+        var currentBalance=BalanceRules.BalanceAt(shift.OpeningBalance,ledger,operation.Date);
+        if(!ShiftRules.CanPost(currentBalance,box.BalanceLimit,operation.Amount,operation.Type))throw new BusinessException("Operation exceeds cashbox limit or creates a negative balance",409);
         if(!BalanceRules.CanPost(opening?.Amount??0,ledger,new(operation.Date,seq,operation.Type,operation.Amount)))throw new BusinessException("Расход создаёт отрицательный остаток");
         var counter=await db.Sequences.SingleOrDefaultAsync(x=>x.CashboxId==box.Id&&x.Type==operation.Type&&x.Year==operation.Date.Year,cancellationToken);
         if(counter==null){counter=new(){CashboxId=box.Id,Type=operation.Type,Year=(short)operation.Date.Year};db.Sequences.Add(counter);}
-        counter.LastNumber++;operation.PostingSeq=seq;operation.DocumentNumber=$"{(operation.Type=="income"?"ПКО":"РКО")}-{box.Code}-{operation.Date.Year}-{counter.LastNumber:D6}";
+        counter.LastNumber++;operation.ShiftId=shift.Id;operation.PostingSeq=seq;operation.DocumentNumber=$"{(operation.Type=="income"?"ПКО":"РКО")}-{box.Code}-{operation.Date.Year}-{counter.LastNumber:D6}";
         operation.Status="posted";operation.PostedBy=userId;operation.PostedAt=DateTime.UtcNow;operation.Version++;
         if(operation.IsReversal)
         {

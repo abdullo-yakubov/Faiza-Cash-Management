@@ -55,6 +55,8 @@ services:
       Jwt__Key: ${JWT__KEY:?Set a production JWT key}
       Jwt__Issuer: FaizaCash
       Jwt__Audience: FaizaCash
+      RefreshCookie__Secure: "true"
+      RefreshCookie__SameSite: Strict
       Seed__AdminLogin: ${SEED__ADMINLOGIN:-admin}
       Seed__AdminPassword: ${SEED__ADMINPASSWORD:?Set a unique initial admin password}
       Frontend__Origin: https://${FAIZA_DOMAIN:?Set FAIZA_DOMAIN}
