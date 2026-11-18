@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Net;
+using FaizaCash.Infrastructure.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,11 +32,15 @@ if (builder.Environment.IsProduction())
 var cs = builder.Configuration.GetConnectionString("CashDb") ?? throw new InvalidOperationException("CashDb is not configured.");
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 if (jwtKey.Length < 32) throw new InvalidOperationException("Jwt:Key must have at least 32 characters.");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "FaizaCash";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "FaizaCash";
 builder.Services.AddDbContext<CashDb>(x => x.UseNpgsql(cs));
 builder.Services.AddScoped<Audit>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentActor,CurrentActor>();
 builder.Services.AddScoped<ICashboxAccess,CashboxAccessService>();
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.AddScoped<ILedgerService,LedgerService>();
 builder.Services.AddSingleton<IPdfReport,PdfReport>();
 builder.Logging.ClearProviders();
@@ -43,12 +48,18 @@ builder.Logging.AddJsonConsole();
 builder.Logging.AddProvider(new JsonFileLoggerProvider(builder.Configuration["Logs:Directory"] ?? ".runtime/logs"));
 builder.Services.ConfigureHttpJsonOptions(o=>o.SerializerOptions.Converters.Add(new DecimalStringConverter()));
 builder.Services.AddMemoryCache();
-builder.Services.AddCors(o=>o.AddDefaultPolicy(p=>p.WithOrigins(builder.Configuration["Frontend:Origin"] ?? "http://localhost:5173").AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+var frontendOrigins = (builder.Configuration["Frontend:Origins"] ?? builder.Configuration["Frontend:Origin"] ?? "http://localhost:8085;http://127.0.0.1:8085")
+    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+if (frontendOrigins.Length == 0)
+{
+    frontendOrigins = ["http://localhost:8085", "http://127.0.0.1:8085"];
+}
+builder.Services.AddCors(o=>o.AddDefaultPolicy(p=>p.WithOrigins(frontendOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 builder.Services.AddRateLimiter(o=> { o.RejectionStatusCode=429; o.AddPolicy("login", c=>System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "unknown", _=> new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit=15,Window=TimeSpan.FromMinutes(1),QueueLimit=0 })); });
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(x => x.TokenValidationParameters = new()
 {
-    ValidateIssuer = true, ValidIssuer = builder.Configuration["Jwt:Issuer"],
-    ValidateAudience = true, ValidAudience = builder.Configuration["Jwt:Audience"],
+    ValidateIssuer = true, ValidIssuer = jwtIssuer,
+    ValidateAudience = true, ValidAudience = jwtAudience,
     ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
     ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(20),
     NameClaimType = ClaimTypes.NameIdentifier, RoleClaimType = ClaimTypes.Role

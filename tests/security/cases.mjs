@@ -14,6 +14,11 @@ let cashier,foreign;
   assert.deepEqual(await ok('/cashboxes',{auth:cashierToken,cookies:null}),[]);
   await ok('/access',{method:'POST',body:{userId:cashier.id,cashboxId:box}});
   assert.equal((await request('/cashboxes/'+box+'/balance',{auth:cashierToken,cookies:null})).status,200);
+  const dashboard=await ok('/dashboard?cashboxId='+box,{auth:cashierToken,cookies:null});
+  assert.equal(dashboard.canViewDebts,false);assert.equal(dashboard.overdue,'0.00');assert.deepEqual(dashboard.debts,[]);assert.deepEqual(dashboard.debtStatuses,[]);
+  assert.ok(dashboard.balances.every(x=>x.id===box));
+  const notifications=await ok('/notifications',{auth:cashierToken,cookies:null});
+  assert.ok(!notifications.some(x=>x.code==='overdue_debt'));
   assert.equal((await request('/operations/'+posted.id+'/reversals',{method:'POST',body:{reason:'Forbidden',date},auth:cashierToken,cookies:null})).status,403);
   assert.equal((await request(`/access/${cashier.id}/${box}`,{method:'DELETE'})).status,204);
   assert.equal((await request('/cashboxes/'+box+'/balance',{auth:cashierToken,cookies:null})).status,403);
@@ -27,7 +32,11 @@ let cashier,foreign;
  await test('Cashier cannot escalate role, assign cash access or read audit',async()=>{
   const options={auth:cashierToken,cookies:null};
   assert.equal((await request('/audit',options)).status,403);
+  assert.equal((await request('/settlements',options)).status,403);
+  assert.equal((await request('/reports/settlements',options)).status,403);
+  assert.equal((await request('/reports/settlements.pdf',options)).status,403);
   assert.equal((await request('/users/'+cashier.id,{...options,method:'PATCH',body:{roles:['admin']}})).status,403);
+  assert.equal((await request('/users/'+cashier.id+'/password-reset',{...options,method:'POST',body:{newPassword:password}})).status,403);
   assert.equal((await request('/access',{...options,method:'POST',body:{userId:cashier.id,cashboxId:box}})).status,403);
   assert.equal((await request('/users',{...options,method:'POST',body:{login:'escalate'+suffix,password,fullName:'Escalation attempt',roles:['admin']}})).status,403);
  });
@@ -35,7 +44,9 @@ let cashier,foreign;
   foreign=await ok('/cashboxes',{method:'POST',body:{code:'FOREIGN'+suffix,name:'Foreign cashbox',currencyId:currencies[0].id,balanceLimit:null}});
   const row=await draft('income','1.00',crypto.randomUUID(),foreign.id);
   const options={auth:cashierToken,cookies:null};
-  for(const path of [`/operations/${row.id}`,`/operations/${row.id}/document.pdf`,`/operations?cashboxId=${foreign.id}`,`/operations/?cashboxId=${foreign.id}`,`/summary?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/cashbook?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/cash.csv?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/cash.pdf?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/analytics?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/category-summary?cashboxId=${foreign.id}&from=${date}&to=${date}`])
+  assert.equal((await request('/transfers',{method:'POST',body:{sourceCashboxId:box,targetCashboxId:foreign.id,date,amount:'1.00',description:'Forbidden transfer',requestKey:crypto.randomUUID()},...options})).status,403);
+  assert.equal((await request('/transfers?cashboxId='+foreign.id,options)).status,403);
+  for(const path of [`/operations/${row.id}`,`/operations/${row.id}/document.pdf`,`/operations?cashboxId=${foreign.id}`,`/operations/?cashboxId=${foreign.id}`,`/summary?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/cashbook?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/cash.csv?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/cash.pdf?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/reports/transfers.pdf?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/analytics?cashboxId=${foreign.id}&from=${date}&to=${date}`,`/category-summary?cashboxId=${foreign.id}&from=${date}&to=${date}`])
    assert.equal((await request(path,options)).status,403,path);
   assert.equal((await request('/operations/',options)).status,400,'trailing slash must not bypass the required scope');
   assert.equal((await request('/operations?from='+date+'&to='+date,options)).status,400,'missing cashboxId must not expose all operations');
@@ -57,6 +68,10 @@ let cashier,foreign;
   await ok('/access',{method:'POST',body:{userId:credentials.auditor.user.id,cashboxId:box}});
   const assignments={accountant:box,cashier:box,manager:foreign.id,auditor:box};
   const tokens={accountant:credentials.accountant.token,cashier:cashierToken,manager:credentials.manager.token,auditor:credentials.auditor.token};
+  for(const role of ['accountant','manager','auditor']){
+   assert.equal((await request('/settlements',{auth:tokens[role],cookies:null})).status,200,role+' settlement list');
+   assert.equal((await request('/reports/settlements',{auth:tokens[role],cookies:null})).status,200,role+' settlement report');
+  }
   const allBoxes=await ok('/cashboxes');
   assert.ok(allBoxes.some(x=>x.id===box)&&allBoxes.some(x=>x.id===foreign.id),'admin must retain global cashbox access');
   for(const role of Object.keys(assignments)){
@@ -92,7 +107,11 @@ let cashier,foreign;
  });
  await test('Cashier can post own draft with an empty request body and JSON content type',async()=>{
   const options={auth:cashierToken,cookies:null};
-  const row=await ok('/operations',{...options,method:'POST',body:{cashboxId:box,date,type:'income',amount:'0.01',description:'Cashier own document',categoryId:posted.categoryId,counterpartyId:null,documentTypeId:null,requestKey:crypto.randomUUID()}});
+  const postingBox=await ok('/cashboxes',{method:'POST',body:{code:'POST'+suffix,name:'Cashier posting fixture',currencyId:currencies[0].id,balanceLimit:null}});
+  await ok('/access',{method:'POST',body:{userId:cashier.id,cashboxId:postingBox.id}});
+  assert.equal((await request('/shifts/open',{method:'POST',body:{cashboxId:postingBox.id,date,openingBalance:'0.00'}})).status,201);
+  const activeIncome=(await ok('/categories')).find(x=>x.type==='income'&&x.active);assert.ok(activeIncome);
+  const row=await ok('/operations',{...options,method:'POST',body:{cashboxId:postingBox.id,date,type:'income',amount:'0.01',description:'Cashier own document',categoryId:activeIncome.id,counterpartyId:null,documentTypeId:null,requestKey:crypto.randomUUID()}});
   const result=await ok('/operations/'+row.id+'/post',{...options,method:'POST',body:{expectedVersion:row.version}});assert.equal(result.status,'posted');
   assert.equal((await request('/operations',{...options,method:'POST',body:[]})).status,400);
  });
@@ -113,5 +132,23 @@ let cashier,foreign;
  });
  await test('Cookie actions require CSRF header and reject foreign Origin',async()=>{const r=await fetch(base+'/api/auth/refresh',{method:'POST',headers:{Cookie:cookie}});assert.equal(r.status,403);assert.equal((await request('/auth/refresh',{method:'POST',extra:{Origin:'https://untrusted.invalid'}})).status,403);});
  await test('Refresh rotates, reuse revokes successor, logout revokes session',async()=>{const login=await request('/auth/login',{method:'POST',body:{login:cashier.login,password},auth:null,cookies:null});const original=login.headers.get('set-cookie').split(';')[0];const refreshed=await request('/auth/refresh',{method:'POST',cookies:original,auth:null});assert.equal(refreshed.status,200);const successor=refreshed.headers.get('set-cookie').split(';')[0];assert.notEqual(original,successor);assert.equal((await request('/auth/refresh',{method:'POST',cookies:original,auth:null})).status,401);assert.equal((await request('/auth/refresh',{method:'POST',cookies:successor,auth:null})).status,401);const again=await request('/auth/login',{method:'POST',body:{login:cashier.login,password},auth:null,cookies:null});const activeCookie=again.headers.get('set-cookie').split(';')[0];const activeToken=(await again.json()).accessToken;await ok('/auth/logout',{method:'POST',auth:activeToken,cookies:activeCookie});assert.equal((await request('/auth/refresh',{method:'POST',cookies:activeCookie,auth:null})).status,401);});
+ await test('Administrator password reset revokes old sessions and requires a new password',async()=>{
+  const active=await request('/auth/login',{method:'POST',body:{login:cashier.login,password},auth:null,cookies:null});
+  assert.equal(active.status,200);
+  const activeCookie=active.headers.get('set-cookie').split(';')[0];
+  const temporaryPassword=crypto.randomBytes(14).toString('hex')+'Aa1';
+  assert.equal((await request('/users/'+cashier.id+'/password-reset',{method:'POST',body:{newPassword:temporaryPassword}})).status,204);
+  const resetAudit=(await ok('/audit?entity=user&pageSize=100')).items.find(x=>x.action==='user_password_reset'&&JSON.parse(x.details).userId===cashier.id);
+  assert.ok(resetAudit);assert.ok(!resetAudit.details.includes(temporaryPassword));
+  assert.equal((await request('/auth/refresh',{method:'POST',cookies:activeCookie,auth:null})).status,401);
+  const oldAccess=(await active.json()).accessToken;
+  assert.equal((await request('/cashboxes',{auth:oldAccess,cookies:null})).status,403);
+  const resetLogin=await request('/auth/login',{method:'POST',body:{login:cashier.login,password:temporaryPassword},auth:null,cookies:null});
+  assert.equal(resetLogin.status,200);
+  const resetBody=await resetLogin.json();assert.equal(resetBody.user.mustChangePassword,true);
+  const finalPassword=crypto.randomBytes(14).toString('hex')+'Bb2';
+  assert.equal((await request('/auth/change-password',{method:'POST',body:{oldPassword:temporaryPassword,newPassword:finalPassword},auth:resetBody.accessToken,cookies:resetLogin.headers.get('set-cookie').split(';')[0]})).status,204);
+  assert.equal((await ok('/auth/me',{auth:resetBody.accessToken,cookies:null})).mustChangePassword,false);
+ });
 
 }

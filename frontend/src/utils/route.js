@@ -1,5 +1,5 @@
 import {monthStart, today} from './format.js';
-export const pages = ['overview','operations','cashboxes','counterparties','categories','reports','audit','users','settings'];
+export const pages = ['overview','dashboard','operations','shifts','transfers','debts','branches','representatives','cashboxes','counterparties','categories','reports','audit','users','backups','settings'];
 export const routeDefaults = () => ({page:'overview',box:'',from:monthStart(),to:today(),q:'',type:'',status:'',categoryId:'',counterpartyId:'',sort:'date_desc',index:1,action:'',entity:'',userId:'',technical:'false'});
 const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') && !Number.isNaN(Date.parse(value+'T00:00:00Z')) && new Date(value+'T00:00:00Z').toISOString().slice(0,10) === value;
 export function readRoute(hash = '') {

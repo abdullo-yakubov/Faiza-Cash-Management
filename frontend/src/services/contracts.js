@@ -5,6 +5,7 @@ export class ContractError extends Error {
 export function userContract(user) {
   if (!user || typeof user.id !== 'string' || typeof user.login !== 'string' ||
       typeof user.fullName !== 'string' || typeof user.active !== 'boolean' ||
+      typeof user.mustChangePassword !== 'boolean' ||
       !Array.isArray(user.roles) || user.roles.some(role => typeof role !== 'string')) {
     throw new ContractError('Сервер вернул неполные данные пользователя. Обновите список; если ошибка повторяется, обратитесь к администратору.');
   }

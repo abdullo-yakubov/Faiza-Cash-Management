@@ -3,4 +3,5 @@ public record ReportLine(string Number, DateOnly Date, string Description, strin
 public interface IPdfReport
 {
     byte[] Generate(string organization,string currency,string title,string subtitle,IReadOnlyList<ReportLine> lines, decimal opening=0, bool balances=true);
+    byte[] GenerateVoucher(string organization,string currency,bool income,bool posted,string number,DateOnly date,string cashbox,string cashboxCode,string category,string? counterparty,string description,decimal amount);
 }
