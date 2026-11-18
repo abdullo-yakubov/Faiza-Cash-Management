@@ -26,4 +26,11 @@ public class ShiftRulesTests
         Assert.False(ShiftRules.CanClose("closed", 150m, 150m));
         Assert.Equal(-5m, ShiftRules.ClosingDifference(150m, 145m));
     }
+
+    [Theory]
+    [InlineData("transfer")]
+    [InlineData("refund")]
+    [InlineData("")]
+    public void UnknownOperationDirectionsAreRejected(string type) =>
+        Assert.False(ShiftRules.CanPost(100m, null, 1m, type));
 }

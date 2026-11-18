@@ -108,6 +108,7 @@ try {
   const currencies=await expect('/currencies',{},200);
   const makeBox=async code=>(await expect('/cashboxes',{method:'POST',body:{code:code+'-'+suffix,name:code,currencyId:currencies[0].id}},201)).id;
   const boxA=await makeBox('ALLOWED'),boxB=await makeBox('FOREIGN');
+  await expect('/shifts/open',{method:'POST',body:{cashboxId:boxA,date,openingBalance:'0.00'}},201);
   await expect('/access',{method:'POST',body:{userId:users.accountant.id,cashboxId:boxA}},204);
   await expect('/categories',{method:'POST',body:{name:'Ledger income '+suffix,type:'income'}},204);
   await expect('/categories',{method:'POST',body:{name:'Ledger expense '+suffix,type:'expense'}},204);
@@ -168,18 +169,21 @@ async function runRegressions({check,expect,request,sql,scalar,draft,posted,boxA
     assert.equal(scalar(`SELECT count(*) FROM "AuditEvents" WHERE "Action"='operation_posted' AND "EntityId"=${row.id};`),'0');
   });
 
-  await check('a later receipt cannot fund an earlier expense',async()=>{
+  await check('cash movements affect balances only on their operation date',async()=>{
+    const earlierDate=day(-2),laterDate=day(-1);
+    const earlierShift=await expect('/shifts/open',{method:'POST',body:{cashboxId:boxB,date:earlierDate,openingBalance:'0.00'}},201);
     const earlier=await draft(boxB,'expense','10.00');
-    const datedEarlier=await expect(`/operations/${earlier.id}`,{method:'PATCH',body:{date:day(-2),version:earlier.version}},200);
+    const datedEarlier=await expect(`/operations/${earlier.id}`,{method:'PATCH',body:{date:earlierDate,version:earlier.version}},200);
     const earlyResponse=await request(`/operations/${earlier.id}/post`,{method:'POST',body:{expectedVersion:datedEarlier.version}});
     assert.equal(earlyResponse.status,409);
     assert.equal((await expect(`/operations/${earlier.id}`,{},200)).status,'draft');
+    await expect(`/shifts/${earlierShift.id}/close`,{method:'POST',body:{closingBalance:'0.00'}},200);
+    await expect('/shifts/open',{method:'POST',body:{cashboxId:boxB,date:laterDate,openingBalance:'0.00'}},201);
     const later=await draft(boxB,'income','10.00');
-    const changed=await expect(`/operations/${later.id}`,{method:'PATCH',body:{date:day(-1),version:later.version}},200);
-    assert.equal((await request(`/operations/${changed.id}/post`,{method:'POST',body:{expectedVersion:changed.version}})).status,200);
-    const afterReceipt=await balance(boxB);
-    assert.equal((await request(`/operations/${earlier.id}/post`,{method:'POST',body:{expectedVersion:datedEarlier.version}})).status,409);
-    assert.equal(await balance(boxB),afterReceipt);
+    const datedLater=await expect(`/operations/${later.id}`,{method:'PATCH',body:{date:laterDate,version:later.version}},200);
+    assert.equal((await request(`/operations/${datedLater.id}/post`,{method:'POST',body:{expectedVersion:datedLater.version}})).status,200);
+    assert.equal((await expect(`/cashboxes/${boxB}/balance?date=${earlierDate}`,{},200)).balance,'0.00');
+    assert.equal((await expect(`/cashboxes/${boxB}/balance?date=${laterDate}`,{},200)).balance,'10.00');
   });
 
   await check('concurrent expenses cannot jointly create a negative balance',async()=>{

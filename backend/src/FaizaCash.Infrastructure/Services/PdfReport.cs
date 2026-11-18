@@ -6,6 +6,48 @@ using System.Globalization;
 namespace FaizaCash.Infrastructure;
 public sealed class PdfReport : IPdfReport
 {
+    public byte[] GenerateVoucher(string organization,string currency,bool income,bool posted,string number,DateOnly date,string cashbox,string cashboxCode,string category,string? counterparty,string description,decimal amount)
+    {
+        QuestPDF.Settings.License=LicenseType.Community;
+        QuestPDF.Settings.UseEnvironmentFonts=false;
+        string Money(decimal value)=>value.ToString("N2",CultureInfo.GetCultureInfo("ru-RU"))+" "+currency;
+        var title=income?"ПРИХОДНЫЙ КАССОВЫЙ ОРДЕР":"РАСХОДНЫЙ КАССОВЫЙ ОРДЕР";
+        return Document.Create(document=>document.Page(page=>
+        {
+            page.Size(PageSizes.A4);page.Margin(42);page.DefaultTextStyle(style=>style.FontSize(11));
+            page.Header().Column(column=>
+            {
+                column.Item().AlignCenter().Text(organization).Bold().FontColor("#1C5743").FontSize(15);
+                column.Item().PaddingTop(20).AlignCenter().Text(title).Bold().FontSize(19);
+                column.Item().PaddingTop(8).AlignCenter().Text(posted?"ПРОВЕДЁН":"ЧЕРНОВИК").FontColor(posted?"#1C5743":"#8A5A00").Bold();
+            });
+            page.Content().PaddingVertical(24).Column(column=>
+            {
+                column.Item().Row(row=>
+                {
+                    row.RelativeItem().Text("Документ № "+number).Bold();
+                    row.ConstantItem(150).AlignRight().Text(date.ToString("dd.MM.yyyy",CultureInfo.GetCultureInfo("ru-RU")));
+                });
+                column.Item().PaddingTop(16).Border(1).BorderColor("#C9D8D0").Padding(16).Column(details=>
+                {
+                    details.Item().Text("Касса: "+cashbox+" ("+cashboxCode+")");
+                    details.Item().PaddingTop(10).Text("Контрагент: "+(string.IsNullOrWhiteSpace(counterparty)?"—":counterparty));
+                    details.Item().PaddingTop(10).Text("Категория: "+category);
+                    details.Item().PaddingTop(10).Text("Основание: "+description);
+                });
+                column.Item().PaddingTop(22).Text("Сумма: "+Money(amount)).Bold().FontSize(16);
+                column.Item().PaddingTop(10).Text("Сумма прописью в этой учебной форме не сформирована.").FontColor(Colors.Grey.Darken1).FontSize(9);
+                column.Item().PaddingTop(54).Row(row=>
+                {
+                    row.RelativeItem().Column(signature=>{signature.Item().Text(income?"Принято от":"Выдано");signature.Item().PaddingTop(26).Text("____________________________");});
+                    row.RelativeItem().Column(signature=>{signature.Item().Text("Ответственный сотрудник");signature.Item().PaddingTop(26).Text("____________________________");});
+                });
+                column.Item().PaddingTop(30).Text("Учебное представление. Не является утверждённой бухгалтерской формой.").FontColor(Colors.Grey.Darken1).FontSize(8);
+            });
+            page.Footer().AlignRight().Text(t=>{t.Span("Faiza Cash · Страница ");t.CurrentPageNumber();t.Span(" / ");t.TotalPages();});
+        })).GeneratePdf();
+    }
+
     public byte[] Generate(string organization,string currency,string title,string subtitle,IReadOnlyList<ReportLine> lines,decimal opening=0,bool balances=true)
     {
         // Academic diploma use. Reassess QuestPDF license before commercial use.

@@ -22,18 +22,19 @@ services:
       Seed__AdminLogin: ${SEED__ADMINLOGIN:-admin}
       Seed__AdminPassword: ${SEED__ADMINPASSWORD:?Set SEED__ADMINPASSWORD}
       ASPNETCORE_ENVIRONMENT: Development
-      Frontend__Origin: http://localhost:8080
+      Frontend__Origins: http://localhost:8085;http://127.0.0.1:8085
+      Frontend__Origin: http://localhost:8085
       AllowedHosts: localhost;127.0.0.1;api
       Logs__Directory: /tmp/faiza-logs
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - '127.0.0.1:5080:8080'
+      - '127.0.0.1:5085:8080'
   frontend:
     build: ./frontend
     ports:
-      - '127.0.0.1:8080:80'
+      - '127.0.0.1:8085:80'
     depends_on:
       - api
 volumes:

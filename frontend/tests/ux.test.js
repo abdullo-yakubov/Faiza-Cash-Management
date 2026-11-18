@@ -8,13 +8,14 @@ test('switching operations to users never exposes operation rows as users',()=>{
   const old={key:'operations:cashbox1',status:'success',data:{items:[{id:1,amount:'100.00'}]}};
   assert.deepEqual(pageSnapshot(old,'users:page1'),{key:'users:page1',status:'loading',data:null,error:null});
   assert.throws(()=>usersPageContract({total:1,items:old.data.items}),ContractError);
-  const valid={id:'u1',login:'cashier',fullName:'Кассир',active:true,roles:['cashier']};
+  const valid={id:'u1',login:'cashier',fullName:'Кассир',active:true,mustChangePassword:false,roles:['cashier']};
   assert.equal(usersPageContract({total:1,items:[valid]}).items[0],valid);
 });
-test('missing roles are a contract error, empty roles are explicitly supported',()=>{
+test('missing roles and password-change flags are contract errors, empty roles are explicitly supported',()=>{
   const user={id:'u1',login:'test',fullName:'Сотрудник',active:true};
   assert.throws(()=>userContract(user),/неполные данные/);
-  assert.deepEqual(userContract({...user,roles:[]}).roles,[]);
+  assert.throws(()=>userContract({...user,mustChangePassword:undefined,roles:[]}),/неполные данные/);
+  assert.deepEqual(userContract({...user,mustChangePassword:false,roles:[]}).roles,[]);
   assert.throws(()=>usersPageContract({items:[],total:'1'}),ContractError);
 });
 test('a late response for another cashbox or period is not rendered',()=>{

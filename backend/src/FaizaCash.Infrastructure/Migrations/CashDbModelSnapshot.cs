@@ -121,14 +121,26 @@ namespace FaizaCash.Infrastructure.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("CashboxCodeSnapshot")
+                        .HasColumnType("text");
+
                     b.Property<long>("CashboxId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("CashboxNameSnapshot")
+                        .HasColumnType("text");
 
                     b.Property<long>("CategoryId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("CategoryNameSnapshot")
+                        .HasColumnType("text");
+
                     b.Property<long?>("CounterpartyId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("CounterpartyNameSnapshot")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -151,6 +163,9 @@ namespace FaizaCash.Infrastructure.Migrations
 
                     b.Property<bool>("IsReversal")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("OrganizationNameSnapshot")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("PostedAt")
                         .HasColumnType("timestamp with time zone");
@@ -812,6 +827,9 @@ namespace FaizaCash.Infrastructure.Migrations
 
                     b.Property<long>("CounterpartyId")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("CounterpartyNameSnapshot")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

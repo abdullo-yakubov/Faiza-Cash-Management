@@ -19,7 +19,7 @@ public static class ShiftRules
 {
     public static bool CanPost(decimal currentBalance, decimal? limit, decimal amount, string type)
     {
-        if (amount <= 0) return false;
+        if (amount <= 0 || type is not ("income" or "expense")) return false;
         var next = type == "income" ? currentBalance + amount : currentBalance - amount;
         return next >= 0 && (!limit.HasValue || next <= limit.Value);
     }

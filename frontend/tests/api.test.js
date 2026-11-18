@@ -5,7 +5,7 @@ test('parallel expired requests share one refresh and retry with the new token',
  const native=globalThis.fetch;let refreshes=0,expired=0;setToken('expired');
  globalThis.fetch=async(url,options)=>{
   assert.equal(options.credentials,'include');assert.equal(options.headers['X-Faiza-Request'],'1');
-  if(url==='/api/auth/refresh'){refreshes++;await new Promise(r=>setTimeout(r,20));return Response.json({accessToken:'fresh',user:{id:'test-user',login:'test',fullName:'Тестовый сотрудник',active:true,roles:['cashier']}});}
+  if(url==='/api/auth/refresh'){refreshes++;await new Promise(r=>setTimeout(r,20));return Response.json({accessToken:'fresh',user:{id:'test-user',login:'test',fullName:'Тестовый сотрудник',active:true,mustChangePassword:false,roles:['cashier']}});}
   if(options.headers.Authorization==='Bearer expired'){expired++;return new Response(null,{status:401});}
   assert.equal(options.headers.Authorization,'Bearer fresh');return Response.json({ok:true});
  };

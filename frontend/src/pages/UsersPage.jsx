@@ -4,7 +4,7 @@ import {Pager,Empty} from '../components/ui';
 import {usersPageContract} from '../services/contracts.js';
 import {rolesText} from '../utils/format.js';
 
-export function UsersPage({data,user,boxes=[],access=[],onModal,onToggle,onRevoke,onPage}) {
+export function UsersPage({data,user,boxes=[],access=[],onModal,onToggle,onRevoke,onResetPassword,onPage}) {
   const page=usersPageContract(data);
   return <section className="panel">
     <div className="panel-heading">
@@ -27,7 +27,7 @@ export function UsersPage({data,user,boxes=[],access=[],onModal,onToggle,onRevok
               <button className="text-btn" aria-label={`Отозвать доступ: ${row.fullName} — ${boxName}`} onClick={()=>onRevoke(item,row.fullName,boxName)}>Отозвать</button>
             </div>;
           }):<span className="muted">Нет назначенных касс</span>}</td>
-          <td><div className="row-actions"><button className="text-btn" onClick={()=>onModal({kind:'editUser',row})}>Изменить</button>{row.id!==user.id&&<button className="text-btn" onClick={()=>onToggle(row)}>{row.active?'Отключить':'Включить'}</button>}</div></td>
+          <td><div className="row-actions"><button className="text-btn" onClick={()=>onModal({kind:'editUser',row})}>Изменить</button>{row.id!==user.id&&<>{onResetPassword&&<button className="text-btn" onClick={()=>onResetPassword(row)}>Сбросить пароль</button>}<button className="text-btn" onClick={()=>onToggle(row)}>{row.active?'Отключить':'Включить'}</button></>}</div></td>
         </tr>;
       })}</tbody>
     </table>{!page.items.length&&<Empty text="Сотрудники не найдены. Измените поиск или добавьте пользователя."/>}</div>

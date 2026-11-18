@@ -38,7 +38,9 @@ public static class Tokens
         ctx.Response.Cookies.Append(Cookie,raw,Options(ctx,cfg));
         var claims=new List<Claim>{new(ClaimTypes.NameIdentifier,user.Id.ToString())};
         claims.AddRange(user.UserRoles.Select(x=>new Claim(ClaimTypes.Role,x.Role.Code)));
-        var t=new JwtSecurityToken(cfg["Jwt:Issuer"],cfg["Jwt:Audience"],claims,expires:DateTime.UtcNow.AddMinutes(15),signingCredentials:new(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(cfg["Jwt:Key"]!)),SecurityAlgorithms.HmacSha256));
+        var issuer=cfg["Jwt:Issuer"]??"FaizaCash";
+        var audience=cfg["Jwt:Audience"]??"FaizaCash";
+        var t=new JwtSecurityToken(issuer,audience,claims,expires:DateTime.UtcNow.AddMinutes(15),signingCredentials:new(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(cfg["Jwt:Key"]!)),SecurityAlgorithms.HmacSha256));
         return new{accessToken=new JwtSecurityTokenHandler().WriteToken(t),expiresIn=900,user=user.Public()};
     }
 }
