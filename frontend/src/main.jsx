@@ -6,4 +6,5 @@ import './styles/refinements.css';
 import './styles/animations.css';
 import './styles/password-input.css';
 import './styles/access-management.css';
+import './styles/tokens.css';
 createRoot(document.getElementById('root')).render(<App/>);

@@ -2,7 +2,8 @@ import React,{useEffect,useState} from 'react';
 import {Wallet,ArrowUpRight,ChevronLeft,ChevronRight} from 'lucide-react';
 import {api} from '../services/api';
 import {money,records,dateText,today} from '../utils/format';
-export function Brand(){return <div className="brand"><span className="brand-mark"><Wallet size={23}/></span><span>faiza<span className="brand-light">cash</span><small>ФИНАНСЫ В ПОРЯДКЕ</small></span></div>}
+import brandMark from '../assets/icons/faiza-gold.svg';
+export function Brand(){return <div className="brand"><span className="brand-mark"><img src={brandMark} width="39" height="42" alt=""/></span><span>faiza{' '}<span className="brand-light">gold</span><small>ФИНАНСЫ В ПОРЯДКЕ</small></span></div>}
 export function Field({label,children,error,errorId}){return <label className="field"><span>{label}</span>{children}{error&&<span id={errorId} className="field-error" role="alert">{error}</span>}</label>}
 export function Empty({text}){return <div className="empty"><Wallet size={28}/><p>{text}</p></div>}
 export function Stat({label,value,currency,icon:Icon,hero,foot,positive}){return <section className={'stat '+(hero?'hero':'')}><div className="stat-label">{label}<span className={'stat-icon '+(positive?'positive':'')}><Icon size={18}/></span></div><div className="stat-value">{money(value)} <small>{currency}</small></div><div className="stat-foot">{hero?<span className="live-dot"/>:null}{foot}</div></section>}
