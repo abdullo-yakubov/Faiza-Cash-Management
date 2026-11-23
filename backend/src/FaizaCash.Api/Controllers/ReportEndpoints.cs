@@ -90,12 +90,13 @@ public static class ReportEndpoints
             await tx.CommitAsync(ctx.RequestAborted);
             return Results.File(bytes,"application/pdf","Faiza-Transfers.pdf");
         });
-        group.MapGet("/settlements.pdf",async(CashDb db,HttpContext ctx,Audit audit,IPdfReport pdf,long? counterpartyId,string? direction,string? status,string? q,bool? overdueOnly,DateOnly? asOf)=>
+        group.MapGet("/settlements.pdf",async(CashDb db,HttpContext ctx,Audit audit,IPdfReport pdf,ICashboxAccess access,long? counterpartyId,string? direction,string? status,string? q,bool? overdueOnly,DateOnly? asOf)=>
         {
             var date=asOf??Local.Today;
             if(direction is not (null or "receivable" or "payable")||status is not (null or "open" or "partially_paid" or "paid")||q?.Length>160||q?.Contains('\0')==true||date==DateOnly.MinValue)
                 throw new BusinessException("Некорректный фильтр отчёта по задолженностям.",400);
-            var query=db.Settlements.AsNoTracking().Include(x=>x.Counterparty).Where(x=>
+            var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted);
+            var query=db.Settlements.AsNoTracking().Include(x=>x.Counterparty).Include(x=>x.Cashbox).Where(x=>(ctx.User.IsInRole("admin")||(x.CashboxId.HasValue&&allowed.Contains(x.CashboxId.Value))||x.Allocations.Any(a=>allowed.Contains(a.Operation.CashboxId)))&&
                 (!counterpartyId.HasValue||x.CounterpartyId==counterpartyId)&&
                 (direction==null||x.Direction==direction)&&
                 (status==null||x.Status==status)&&
@@ -107,7 +108,7 @@ public static class ReportEndpoints
             var rows=await query.OrderBy(x=>x.DueDate).ThenBy(x=>x.Id).ToListAsync(ctx.RequestAborted);
             var lines=rows.Select(x=>new ReportLine(
                 $"ЗД №{x.Id}",x.DueDate,
-                $"{x.BasisType} {x.BasisReference}; статус: {x.Status}; всего: {x.TotalAmount:N2}; оплачено: {x.PaidAmount:N2}; остаток: {x.TotalAmount-x.PaidAmount:N2}",
+                $"Касса: {x.Cashbox?.Name??"не назначена"}; {x.BasisType} {x.BasisReference}; статус: {x.Status}; всего: {x.TotalAmount:N2}; оплачено: {x.PaidAmount:N2}; остаток: {x.TotalAmount-x.PaidAmount:N2}",
                 x.Direction=="receivable"?"income":"expense",x.TotalAmount-x.PaidAmount,x.CounterpartyNameSnapshot??x.Counterparty.Name)).ToList();
             var organization=await db.Organizations.AsNoTracking().SingleAsync(ctx.RequestAborted);
             var bytes=pdf.Generate(organization.Name,organization.Currency,"Отчёт по взаиморасчётам",$"По состоянию на {date:dd.MM.yyyy} · {count} записей",lines,balances:false);
@@ -115,12 +116,13 @@ public static class ReportEndpoints
             await tx.CommitAsync(ctx.RequestAborted);
             return Results.File(bytes,"application/pdf","Faiza-Settlements.pdf");
         }).RequireAuthorization(new AuthorizeAttribute{Roles="admin,accountant,manager,auditor"});
-        group.MapGet("/settlements",async(CashDb db,HttpContext ctx,long? counterpartyId,string? direction,string? status,string? q,bool? overdueOnly,DateOnly? asOf,int? page,int? pageSize)=>
+        group.MapGet("/settlements",async(CashDb db,HttpContext ctx,ICashboxAccess access,long? counterpartyId,string? direction,string? status,string? q,bool? overdueOnly,DateOnly? asOf,int? page,int? pageSize)=>
         {
             var date=asOf??Local.Today;
             if(direction is not (null or "receivable" or "payable")||status is not (null or "open" or "partially_paid" or "paid")||q?.Length>160||q?.Contains('\0')==true||date==DateOnly.MinValue)
                 throw new BusinessException("Некорректный фильтр отчёта по задолженностям.",400);
-            var query=db.Settlements.AsNoTracking().Where(x=>
+            var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted);
+            var query=db.Settlements.AsNoTracking().Where(x=>(ctx.User.IsInRole("admin")||(x.CashboxId.HasValue&&allowed.Contains(x.CashboxId.Value))||x.Allocations.Any(a=>allowed.Contains(a.Operation.CashboxId)))&&
                 (!counterpartyId.HasValue||x.CounterpartyId==counterpartyId)&&
                 (direction==null||x.Direction==direction)&&
                 (status==null||x.Status==status)&&
@@ -143,7 +145,7 @@ public static class ReportEndpoints
             };
             var total=await query.CountAsync(ctx.RequestAborted);var currentPage=Math.Clamp(page??1,1,1000000);var size=Math.Clamp(pageSize??100,1,500);
             var items=await query.OrderBy(x=>x.DueDate).ThenBy(x=>x.Id).Skip((currentPage-1)*size).Take(size)
-                .Select(x=>new{x.Id,x.CounterpartyId,counterparty=x.CounterpartyNameSnapshot??x.Counterparty.Name,x.Direction,x.BasisType,x.BasisReference,x.TotalAmount,x.PaidAmount,remaining=x.TotalAmount-x.PaidAmount,x.Status,x.DueDate,overdue=x.Status!="paid"&&x.DueDate<date})
+                .Select(x=>new{x.Id,x.CounterpartyId,cashboxId=x.CashboxId,cashbox=x.Cashbox==null?null:x.Cashbox.Name,counterparty=x.CounterpartyNameSnapshot??x.Counterparty.Name,x.Direction,x.BasisType,x.BasisReference,x.TotalAmount,x.PaidAmount,remaining=x.TotalAmount-x.PaidAmount,x.Status,x.DueDate,overdue=x.Status!="paid"&&x.DueDate<date})
                 .ToListAsync(ctx.RequestAborted);
             return Results.Ok(new{asOf=date,page=currentPage,pageSize=size,total,summary=totals,items});
         }).RequireAuthorization(new AuthorizeAttribute{Roles="admin,accountant,manager,auditor"});

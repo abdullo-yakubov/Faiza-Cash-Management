@@ -17,3 +17,27 @@ export function demoOperations(end){
   for(const kind of [kinds[0],kinds[1],kinds[3]])rows.push({...kind,date:end,description:kind.description+' · на проверке (демо)',status:'draft'});
   return rows;
 }
+
+export function demoShiftPlan(rows){
+  const byDate=new Map();
+  for(const row of rows){
+    if(!byDate.has(row.date))byDate.set(row.date,[]);
+    byDate.get(row.date).push(row);
+  }
+  let balance=0n;
+  const dates=[...byDate.keys()].sort();
+  return dates.map((date,index)=>{
+    const openingBalance=balance;
+    for(const row of byDate.get(date)){
+      if(row.status!=='posted')continue;
+      const amount=BigInt(row.amount.replace('.',''));
+      balance+=row.type==='income'?amount:-amount;
+      if(balance<0n)throw new Error(`Demo ledger becomes negative on ${date}`);
+    }
+    return {date,openingBalance:moneyFromCents(openingBalance),closingBalance:moneyFromCents(balance),close:index<dates.length-1};
+  });
+}
+
+function moneyFromCents(cents){
+  return `${cents/100n}.${String(cents%100n).padStart(2,'0')}`;
+}

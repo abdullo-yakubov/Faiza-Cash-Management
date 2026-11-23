@@ -622,6 +622,23 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.ToTable("LoginAttempts");
                 });
 
+            modelBuilder.Entity("FaizaCash.Domain.NotificationRead", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NotificationKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId", "NotificationKey");
+
+                    b.ToTable("NotificationReads");
+                });
+
             modelBuilder.Entity("FaizaCash.Domain.Organization", b =>
                 {
                     b.Property<int>("Id")
@@ -825,6 +842,9 @@ namespace FaizaCash.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<long?>("CashboxId")
+                        .HasColumnType("bigint");
+
                     b.Property<long>("CounterpartyId")
                         .HasColumnType("bigint");
 
@@ -854,6 +874,8 @@ namespace FaizaCash.Infrastructure.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CashboxId");
 
                     b.HasIndex("CounterpartyId", "Status");
 
@@ -1099,6 +1121,15 @@ namespace FaizaCash.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("FaizaCash.Domain.NotificationRead", b =>
+                {
+                    b.HasOne("FaizaCash.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FaizaCash.Domain.PaymentAllocation", b =>
                 {
                     b.HasOne("FaizaCash.Domain.User", null)
@@ -1153,11 +1184,18 @@ namespace FaizaCash.Infrastructure.Migrations
 
             modelBuilder.Entity("FaizaCash.Domain.Settlement", b =>
                 {
+                    b.HasOne("FaizaCash.Domain.Cashbox", "Cashbox")
+                        .WithMany()
+                        .HasForeignKey("CashboxId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("FaizaCash.Domain.Counterparty", "Counterparty")
                         .WithMany()
                         .HasForeignKey("CounterpartyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Cashbox");
 
                     b.Navigation("Counterparty");
                 });

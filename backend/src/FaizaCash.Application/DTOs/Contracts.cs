@@ -3,5 +3,5 @@ public record LoginDto(string? Login, string? Password); public record PasswordD
 
 
 public record OrganizationInput(string Name, string Currency); public record AccessInput(Guid UserId, long CashboxId); public record PostingRequest(int ExpectedVersion); public record BranchInput(string? Code, string? Name, string? City); public record BranchPatch(string? Name, string? City, bool? Active); public record CashTransferInput(long SourceCashboxId, long TargetCashboxId, DateOnly Date, decimal Amount, string? Description, Guid RequestKey); public record RepresentativeReceiptInput(Guid RepresentativeId,long CounterpartyId,string? BasisType,string? BasisReference,decimal Amount,long CashboxId,Guid RequestKey);
-public record SettlementInput(long CounterpartyId, string? Direction, string? BasisType, string? BasisReference, decimal TotalAmount, DateOnly DueDate); public record PaymentAllocationInput(long OperationId, decimal Amount);
+public record SettlementInput(long CounterpartyId, long CashboxId, string? Direction, string? BasisType, string? BasisReference, decimal TotalAmount, DateOnly DueDate); public record PaymentAllocationInput(long OperationId, decimal Amount);
 public record ShiftOpenInput(long CashboxId, DateOnly Date, decimal OpeningBalance); public record ShiftCloseInput(decimal ClosingBalance);

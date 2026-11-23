@@ -18,6 +18,7 @@ public sealed class BackupService(IConfiguration configuration, IHostEnvironment
 {
     private readonly string root = Path.GetFullPath(configuration["Backups:Directory"] ?? Path.Combine(environment.ContentRootPath, ".runtime", "backups"));
     private readonly string? pgBin = configuration["Backups:PostgresBin"];
+    private readonly string? restoreConnectionString = configuration.GetConnectionString("BackupRestore");
     private readonly string connectionString = configuration.GetConnectionString("CashDb") ?? throw new InvalidOperationException("CashDb is not configured.");
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -137,6 +138,65 @@ public sealed class BackupService(IConfiguration configuration, IHostEnvironment
         return new BackupInfo(id, manifest.CreatedAt, manifest.SizeBytes, hash, "verified", null);
     }
 
+    public bool RestoreTestConfigured => !string.IsNullOrWhiteSpace(restoreConnectionString);
+
+    public async Task<BackupInfo> RestoreTestAsync(string id, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(restoreConnectionString))
+        {
+            throw new InvalidOperationException("Изолированная тестовая база восстановления не сконфигурирована.");
+        }
+
+        var file = Resolve(id);
+        var manifest = await ReadManifest(file, ct);
+        var length = new FileInfo(file).Length;
+        ValidateManifest(manifest, id, length, await HashAsync(file, ct));
+
+        var destination = new NpgsqlConnectionStringBuilder(restoreConnectionString);
+        var production = new NpgsqlConnectionStringBuilder(connectionString);
+        var expectedHost = configuration["Backups:RestoreHost"];
+        var expectedDatabase = configuration["Backups:RestoreDatabase"];
+        if (string.IsNullOrWhiteSpace(destination.Database) ||
+            string.IsNullOrWhiteSpace(expectedHost) || string.IsNullOrWhiteSpace(expectedDatabase) ||
+            !string.Equals(destination.Host, expectedHost, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(destination.Database, expectedDatabase, StringComparison.Ordinal) ||
+            string.Equals(destination.Database, production.Database, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(destination.Host, production.Host, StringComparison.OrdinalIgnoreCase) && destination.Port == production.Port)
+        {
+            throw new InvalidOperationException("Тестовое восстановление не совпадает с явно заданным изолированным сервером и базой данных.");
+        }
+
+        await gate.WaitAsync(ct);
+        try
+        {
+        await using (var conn = new NpgsqlConnection(destination.ConnectionString))
+        {
+            await conn.OpenAsync(ct);
+            await using var preflight = new NpgsqlCommand("SELECT current_database(), current_user, current_setting('transaction_read_only'), EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','S','f'))", conn);
+            await using var reader = await preflight.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct) || !string.Equals(reader.GetString(0), destination.Database, StringComparison.Ordinal) || reader.GetString(2) == "on" || reader.GetBoolean(3))
+            {
+                throw new InvalidOperationException("Целевая база недоступна или не пуста; восстановление выполняется только в пустую одноразовую базу.");
+            }
+        }
+
+            var restoreArgs = new[] { "--no-password", "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges", "--dbname", destination.Database!, file };
+            await RunAsync("pg_restore", restoreArgs, ct, destination);
+            var restoredMigrations = await ReadMigrations(destination.ConnectionString, ct);
+            if (!manifest.Migrations.SequenceEqual(restoredMigrations))
+            {
+                throw new InvalidDataException("Список миграций восстановленной базы не совпадает с манифестом резервной копии.");
+            }
+
+            logger.LogInformation("PostgreSQL backup restored into isolated test database: {BackupId}", id);
+            return new BackupInfo(id, manifest.CreatedAt, length, manifest.Sha256, "restored", null);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public static void ValidateManifest(BackupManifest manifest, string id, long length, string hash)
     {
         if (manifest.FormatVersion != 1 || manifest.Id != id || manifest.SizeBytes <= 0 || manifest.SizeBytes != length || !string.Equals(manifest.Sha256, hash, StringComparison.OrdinalIgnoreCase) || manifest.Migrations is not { Length: > 0 })
@@ -223,7 +283,7 @@ public sealed class BackupService(IConfiguration configuration, IHostEnvironment
         return ids.ToArray();
     }
 
-    private async Task RunAsync(string tool, IEnumerable<string> args, CancellationToken ct)
+    private async Task RunAsync(string tool, IEnumerable<string> args, CancellationToken ct, NpgsqlConnectionStringBuilder? databaseOverride = null)
     {
         var executable = tool + (OperatingSystem.IsWindows() ? ".exe" : string.Empty);
         if (!string.IsNullOrWhiteSpace(pgBin))
@@ -244,7 +304,7 @@ public sealed class BackupService(IConfiguration configuration, IHostEnvironment
             psi.ArgumentList.Add(arg);
         }
 
-        var cs = new NpgsqlConnectionStringBuilder(connectionString);
+        var cs = databaseOverride ?? new NpgsqlConnectionStringBuilder(connectionString);
         psi.Environment["PGHOST"] = cs.Host;
         psi.Environment["PGPORT"] = cs.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
         psi.Environment["PGUSER"] = cs.Username;

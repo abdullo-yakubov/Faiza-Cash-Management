@@ -14,6 +14,8 @@ services:
       retries: 20
   api:
     build: ./backend
+    volumes:
+      - backup-data:/var/lib/faiza/backups
     environment:
       ConnectionStrings__CashDb: Host=db;Database=faiza_cash;Username=faiza_app;Password=${POSTGRES_PASSWORD}
       Jwt__Key: ${JWT__KEY:?Set JWT__KEY}
@@ -38,4 +40,5 @@ services:
     depends_on:
       - api
 volumes:
+  backup-data:
   postgres-data-v2:

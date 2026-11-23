@@ -107,10 +107,14 @@ try{
   try{assert.equal((await request('/operations/'+d.id+'/post',{method:'POST',body:{expectedVersion:d.version}})).status,500);assert.equal((await ok('/operations/'+d.id)).status,'draft');assert.equal((await ok('/cashboxes/'+box+'/balance')).balance,'100.30');}
   finally{sql('DROP TRIGGER test_audit ON "AuditEvents"; DROP FUNCTION fail_test_audit();');}
  });
- await test('Backup restore remains blocked until an isolated destination is configured',async()=>{
+ await test('Backup restore is unavailable until an isolated destination is configured',async()=>{
   const response=await request('/backups/cash-not-created/restore-test',{method:'POST'});
-  assert.equal(response.status,501);
-  assert.match((await response.json()).detail,/отдельная тестовая база данных не сконфигурирована/i);
+  assert.equal(response.status,503);
+  assert.match((await response.json()).detail,/изолированная тестовая база восстановления не сконфигурирована/i);
+ });
+ await test('Notifications cannot be marked read unless currently visible to the user',async()=>{
+  const response=await request('/notifications/nonexistent_notification/read',{method:'POST'});
+  assert.equal(response.status,404);
  });
  await runReviewCases({test,request,ok,draft,box,date,income,expense,admin});
  await test('Transfers require open shifts on both cashboxes and reject reused keys with changed payloads',async()=>{
@@ -164,10 +168,10 @@ try{
   const partyName='Settlement '+suffix;
   await ok('/counterparties',{method:'POST',body:{name:partyName,kind:'client',taxCode:null,contact:null}});
   const party=(await ok('/counterparties?q='+encodeURIComponent(partyName))).find(x=>x.name===partyName);
-  const settlement=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,direction:'receivable',basisType:'order',basisReference:'ORDER-'+suffix,totalAmount:'5.00',dueDate:date}});
-  const secondSettlement=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,direction:'receivable',basisType:'manual',basisReference:'SECOND-'+suffix,totalAmount:'10.00',dueDate:date}});
+  const settlement=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,cashboxId:box,direction:'receivable',basisType:'order',basisReference:'ORDER-'+suffix,totalAmount:'5.00',dueDate:date}});
+  const secondSettlement=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,cashboxId:box,direction:'receivable',basisType:'manual',basisReference:'SECOND-'+suffix,totalAmount:'10.00',dueDate:date}});
   const overdueDate=new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
-  const payable=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,direction:'payable',basisType:'delivery',basisReference:'OVERDUE-'+suffix,totalAmount:'7.00',dueDate:overdueDate}});
+  const payable=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,cashboxId:box,direction:'payable',basisType:'delivery',basisReference:'OVERDUE-'+suffix,totalAmount:'7.00',dueDate:overdueDate}});
   assert.equal((await request('/counterparties/'+party.id,{method:'PATCH',body:{name:partyName+' renamed'}})).status,204);
   const historicalNameSearch=await ok('/settlements?q='+encodeURIComponent(partyName));
   assert.equal(historicalNameSearch.length,3);assert.ok(historicalNameSearch.every(x=>x.counterparty===partyName));
@@ -176,7 +180,7 @@ try{
    await ok('/operations/'+row.id+'/post',{method:'POST',body:{expectedVersion:row.version}});
    return row.id;
   };
-  assert.equal((await request('/settlements',{method:'POST',body:{counterpartyId:party.id,direction:'receivable',basisType:'manual',basisReference:'TOO-LARGE',totalAmount:'10000000000000000.00',dueDate:date}})).status,400);
+  assert.equal((await request('/settlements',{method:'POST',body:{counterpartyId:party.id,cashboxId:box,direction:'receivable',basisType:'manual',basisReference:'TOO-LARGE',totalAmount:'10000000000000000.00',dueDate:date}})).status,400);
   const filtered=await ok(`/settlements?q=${encodeURIComponent(partyName)}&direction=payable&overdueOnly=true&asOf=${date}`);
   assert.deepEqual(filtered.map(x=>x.id),[payable.id]);assert.equal(filtered[0].overdue,true);
   const report=await ok(`/reports/settlements?q=${encodeURIComponent(partyName)}&asOf=${date}`);
@@ -190,6 +194,10 @@ try{
   assert.equal(dashboard.balanceTrend.at(-1).balance,(await ok('/cashboxes/'+box+'/balance')).balance);
   assert.equal(dashboard.cashflow.at(-1).date,date);
   assert.equal(dashboard.cashflow.at(-1).net,(Number(dashboard.cashflow.at(-1).income)-Number(dashboard.cashflow.at(-1).expense)).toFixed(2));
+  const notifications=await ok('/notifications');const overdue=notifications.find(x=>x.key==='overdue_debt');
+  assert.ok(overdue);assert.equal(overdue.isRead,false);assert.equal(overdue.objectType,'settlements');assert.equal(overdue.actionHref,'#/debts');
+  assert.equal((await request('/notifications/overdue_debt/read',{method:'POST'})).status,204);
+  assert.equal((await ok('/notifications')).find(x=>x.key==='overdue_debt').isRead,true);
   const first=await makePayment('2.00'),second=await makePayment('3.00');
   let state=await ok('/settlements/'+settlement.id+'/allocate',{method:'POST',body:{operationId:first,amount:'2.00'}});
   assert.equal(state.status,'partially_paid');assert.equal(state.remaining,'3.00');

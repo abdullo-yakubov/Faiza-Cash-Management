@@ -1,4 +1,4 @@
-import {demoCategories,demoParties,demoOperations} from './demo-data.mjs';
+import {demoCategories,demoParties,demoOperations,demoShiftPlan} from './demo-data.mjs';
 import {api,setToken} from '../frontend/src/services/api.js';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -20,10 +20,15 @@ for(const [name,type]of demoCategories)await api('/categories',{method:'POST',bo
 for(const [name,kind]of demoParties)await api('/counterparties',{method:'POST',body:{name,kind,taxCode:null,contact:null}});
 const box=(await api('/cashboxes'))[0],cats=await api('/categories'),parties=await api('/counterparties');
 const end=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Dushanbe'}).format(new Date());
-for(const item of demoOperations(end)){
- const category=cats.find(c=>c.name===item.category&&c.type===item.type),party=item.party?parties.find(p=>p.name===item.party):null;
- if(!category||item.party&&!party)throw new Error('Не найдены справочники учебного набора.');
- const row=await api('/operations',{method:'POST',body:{cashboxId:box.id,date:item.date,type:item.type,amount:item.amount,description:item.description,categoryId:category.id,counterpartyId:party?.id||null,documentTypeId:null,requestKey:crypto.randomUUID()}});
- if(item.status==='posted')await api('/operations/'+row.id+'/post',{method:'POST'});
+const operations=demoOperations(end);
+for(const shift of demoShiftPlan(operations)){
+ const opened=await api('/shifts/open',{method:'POST',body:{cashboxId:box.id,date:shift.date,openingBalance:shift.openingBalance}});
+ for(const item of operations.filter(row=>row.date===shift.date)){
+  const category=cats.find(c=>c.name===item.category&&c.type===item.type),party=item.party?parties.find(p=>p.name===item.party):null;
+  if(!category||item.party&&!party)throw new Error('Не найдены справочники учебного набора.');
+  const row=await api('/operations',{method:'POST',body:{cashboxId:box.id,date:item.date,type:item.type,amount:item.amount,description:item.description,categoryId:category.id,counterpartyId:party?.id||null,documentTypeId:null,requestKey:crypto.randomUUID()}});
+  if(item.status==='posted')await api('/operations/'+row.id+'/post',{method:'POST',body:{expectedVersion:row.version}});
+ }
+ if(shift.close)await api('/shifts/'+opened.id+'/close',{method:'POST',body:{closingBalance:shift.closingBalance}});
 }
-console.log('Учебное наполнение завершено: 21 проведённый документ и 3 черновика. Существующие документы не изменены.');
+console.log('Учебное наполнение завершено: 21 проведённый документ, 3 черновика, 20 закрытых исторических смен и одна открытая смена на сегодня. Существующие документы не изменены.');

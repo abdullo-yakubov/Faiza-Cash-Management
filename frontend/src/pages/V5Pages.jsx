@@ -19,7 +19,7 @@ export function RepresentativesPage({users,parties,boxes}){const [rows,setRows]=
 export function DebtsPage({parties,currency='TJS',canWrite}){
  const [rows,setRows]=useState(null),[report,setReport]=useState(null),[selected,setSelected]=useState(null),[history,setHistory]=useState(null),[mode,setMode]=useState(''),[error,setError]=useState(''),[msg,setMsg]=useState('');
  const [filters,setFilters]=useState({q:'',direction:'',status:'',overdueOnly:false});
- const [form,setForm]=useState({counterpartyId:'',direction:'receivable',basisType:'order',basisReference:'',totalAmount:'',dueDate:today(),operationId:'',amount:''});
+ const [form,setForm]=useState({counterpartyId:'',cashboxId:'',direction:'receivable',basisType:'order',basisReference:'',totalAmount:'',dueDate:today(),operationId:'',amount:''});
  const load=async()=>{
   const query=new URLSearchParams();
   if(filters.q.trim())query.set('q',filters.q.trim());
@@ -37,7 +37,7 @@ export function DebtsPage({parties,currency='TJS',canWrite}){
  const submit=async e=>{
   e.preventDefault();setError('');setMsg('');
   try{
-   if(mode==='create')await api('/settlements',{method:'POST',body:{counterpartyId:Number(form.counterpartyId),direction:form.direction,basisType:form.basisType,basisReference:form.basisReference,totalAmount:form.totalAmount,dueDate:form.dueDate}});
+   if(mode==='create')await api('/settlements',{method:'POST',body:{counterpartyId:Number(form.counterpartyId),cashboxId:Number(form.cashboxId),direction:form.direction,basisType:form.basisType,basisReference:form.basisReference,totalAmount:form.totalAmount,dueDate:form.dueDate}});
    else await api(`/settlements/${selected.id}/allocate`,{method:'POST',body:{operationId:Number(form.operationId),amount:form.amount}});
    setMsg(mode==='create'?'Задолженность создана':'Платёж распределён');setMode('');
    const updated=await load();
@@ -56,6 +56,7 @@ export function DebtsPage({parties,currency='TJS',canWrite}){
    <label><input type="checkbox" checked={filters.overdueOnly} onChange={e=>setFilters({...filters,overdueOnly:e.target.checked})}/> Только просроченные</label>
   </div>
   {mode==='create'&&<form className="v5-form" onSubmit={submit}>
+   <label className="field"><span>Касса</span><select required value={form.cashboxId} onChange={e=>setForm({...form,cashboxId:e.target.value})}><option value="">Выберите кассу</option>{boxes.filter(x=>x.active).map(x=><option key={x.id} value={x.id}>{x.name} · {x.branch}</option>)}</select></label>
    <label className="field"><span>Контрагент</span><select required value={form.counterpartyId} onChange={e=>setForm({...form,counterpartyId:e.target.value})}><option value="">Выберите</option>{parties.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
    <label className="field"><span>Направление</span><select value={form.direction} onChange={e=>setForm({...form,direction:e.target.value})}><option value="receivable">К получению</option><option value="payable">К оплате</option></select></label>
    <label className="field"><span>Основание</span><select value={form.basisType} onChange={e=>setForm({...form,basisType:e.target.value})}><option value="order">Заказ</option><option value="delivery">Поставка</option><option value="return">Возврат</option><option value="manual">Вручную</option></select></label>
@@ -64,7 +65,7 @@ export function DebtsPage({parties,currency='TJS',canWrite}){
    <div className="modal-actions"><button type="button" className="button secondary" onClick={()=>setMode('')}>Отмена</button><button className="button primary">Сохранить</button></div>
   </form>}
   {error&&<p className="form-hint" role="alert">{error}</p>}
-  <div className="table-scroll"><table><thead><tr><th>Контрагент</th><th>Направление</th><th>Основание</th><th>Сумма</th><th>Оплачено</th><th>Остаток</th><th>Срок / статус</th></tr></thead><tbody>{rows.map(r=><tr key={r.id} onClick={()=>open(r)} className="clickable"><td>{r.counterparty}</td><td>{r.direction==='receivable'?'К получению':'К оплате'}</td><td>{r.basisType} · {r.basisReference}</td><td>{money(r.totalAmount,currency)}</td><td>{money(r.paidAmount,currency)}</td><td>{money(r.remaining,currency)}</td><td>{r.dueDate} · {r.overdue?'Просрочена':r.status==='paid'?'Оплачена':r.status==='partially_paid'?'Частично':'Открыта'}</td></tr>)}</tbody></table>{rows.length===0&&<div className="empty-state">Задолженности не найдены.</div>}</div>
+  <div className="table-scroll"><table><thead><tr><th>Касса</th><th>Контрагент</th><th>Направление</th><th>Основание</th><th>Сумма</th><th>Оплачено</th><th>Остаток</th><th>Срок / статус</th></tr></thead><tbody>{rows.map(r=><tr key={r.id} onClick={()=>open(r)} className="clickable"><td>{r.cashbox||'Без кассы'}</td><td>{r.counterparty}</td><td>{r.direction==='receivable'?'К получению':'К оплате'}</td><td>{r.basisType} · {r.basisReference}</td><td>{money(r.totalAmount,currency)}</td><td>{money(r.paidAmount,currency)}</td><td>{money(r.remaining,currency)}</td><td>{r.dueDate} · {r.overdue?'Просрочена':r.status==='paid'?'Оплачена':r.status==='partially_paid'?'Частично':'Открыта'}</td></tr>)}</tbody></table>{rows.length===0&&<div className="empty-state">Задолженности не найдены.</div>}</div>
   {selected&&<div className="v5-detail"><h3>Задолженность #{selected.id} · {selected.direction==='receivable'?'к получению':'к оплате'}</h3><strong>{money(selected.remaining,currency)} остаток</strong>{canWrite&&Number(selected.remaining)>0&&<button className="button secondary" onClick={()=>setMode('pay')}>Внести оплату</button>}
    {mode==='pay'&&<form className="v5-form" onSubmit={submit}><label className="field"><span>ID проведённой операции</span><input required type="number" min="1" step="1" value={form.operationId} onChange={e=>setForm({...form,operationId:e.target.value})}/></label><label className="field"><span>Сумма оплаты, {currency}</span><input required type="number" min="0.01" max={selected.remaining} step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></label><div className="modal-actions"><button type="button" className="button secondary" onClick={()=>setMode('')}>Отмена</button><button className="button primary">Подтвердить оплату</button></div></form>}
    <h4>История платежей</h4>{history===null?<Loading/>:history.length?history.map(x=><div className="v5-history" key={x.id}>{money(x.amount,currency)} · операция #{x.operationId}</div>):<p className="v5-muted">Платежей пока нет.</p>}

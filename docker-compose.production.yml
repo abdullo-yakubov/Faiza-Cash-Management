@@ -1,4 +1,22 @@
 services:
+  backup-restore-db:
+    image: postgres:18.3-alpine
+    environment:
+      POSTGRES_DB: faiza_restore
+      PGDATA: /var/lib/postgresql/data/restore
+      POSTGRES_USER: faiza_restore
+      POSTGRES_PASSWORD: ${BACKUP_RESTORE_DB_PASSWORD:?Set a separate disposable restore DB password}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U faiza_restore -d faiza_restore']
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    networks:
+      - restore
+    restart: unless-stopped
+
   db:
     image: postgres:18.3-alpine
     environment:
@@ -52,6 +70,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__CashDb: Host=db;Database=faiza_cash;Username=faiza_runtime;Password=${RUNTIME_DB_PASSWORD:?Set a separate runtime DB password}
+      ConnectionStrings__BackupRestore: Host=backup-restore-db;Database=faiza_restore;Username=faiza_restore;Password=${BACKUP_RESTORE_DB_PASSWORD:?Set a separate disposable restore DB password}
+      Backups__RestoreHost: backup-restore-db
+      Backups__RestoreDatabase: faiza_restore
       Jwt__Key: ${JWT__KEY:?Set a production JWT key}
       Jwt__Issuer: FaizaCash
       Jwt__Audience: FaizaCash
@@ -67,10 +88,15 @@ services:
     depends_on:
       provision-runtime:
         condition: service_completed_successfully
+      backup-restore-db:
+        condition: service_healthy
+    volumes:
+      - backup-data:/var/lib/faiza/backups
     restart: unless-stopped
     networks:
       - data
       - web
+      - restore
 
   frontend:
     build: ./frontend
@@ -100,12 +126,15 @@ services:
 networks:
   data:
     internal: true
+  restore:
+    internal: true
   web:
     ipam:
       config:
         - subnet: 172.30.2.0/24
 
 volumes:
+  backup-data:
   postgres-production:
   caddy-data:
   caddy-config:

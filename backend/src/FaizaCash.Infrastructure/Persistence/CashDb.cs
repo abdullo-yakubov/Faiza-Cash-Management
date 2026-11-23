@@ -22,7 +22,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         return base.SaveChangesAsync(cancellationToken);
     }
     public DbSet<User> Users => Set<User>(); public DbSet<Role> Roles => Set<Role>(); public DbSet<UserRole> UserRoles => Set<UserRole>(); public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>(); public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>(); public DbSet<Currency> Currencies => Set<Currency>(); public DbSet<Cashbox> Cashboxes => Set<Cashbox>(); public DbSet<CashboxOpening> Openings => Set<CashboxOpening>(); public DbSet<Category> Categories => Set<Category>(); public DbSet<Counterparty> Counterparties => Set<Counterparty>(); public DbSet<DocumentType> DocumentTypes => Set<DocumentType>(); public DbSet<CashOperation> Operations => Set<CashOperation>(); public DbSet<DocumentSequence> Sequences => Set<DocumentSequence>(); public DbSet<CashShift> Shifts => Set<CashShift>(); public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>();
+    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>(); public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<CashAccess>().HasKey(x=>new { x.UserId,x.CashboxId });
@@ -39,6 +39,9 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<RefreshToken>().HasOne<RefreshToken>().WithMany().HasForeignKey(x=>x.ReplacedBy).OnDelete(DeleteBehavior.Restrict);
         b.Entity<AuditEvent>().HasIndex(x=>x.CreatedAt);
         b.Entity<AuditEvent>().HasOne<User>().WithMany().HasForeignKey(x=>x.UserId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<NotificationRead>().HasKey(x=>new {x.UserId,x.NotificationKey});
+        b.Entity<NotificationRead>().Property(x=>x.NotificationKey).HasMaxLength(200);
+        b.Entity<NotificationRead>().HasOne<User>().WithMany().HasForeignKey(x=>x.UserId).OnDelete(DeleteBehavior.Cascade);
 
         b.Entity<Currency>().HasIndex(x=>x.Code).IsUnique();
         b.Entity<Branch>().HasIndex(x=>x.Code).IsUnique();
@@ -57,6 +60,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<Counterparty>().ToTable(t=>t.HasCheckConstraint("CK_Counterparties_Kind","\"Kind\" IN ('client','supplier','employee','other')"));
         b.Entity<Settlement>().Property(x=>x.TotalAmount).HasPrecision(18,2); b.Entity<Settlement>().Property(x=>x.PaidAmount).HasPrecision(18,2);
         b.Entity<Settlement>().HasOne(x=>x.Counterparty).WithMany().HasForeignKey(x=>x.CounterpartyId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Settlement>().HasOne(x=>x.Cashbox).WithMany().HasForeignKey(x=>x.CashboxId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<Settlement>().HasIndex(x=>new{x.CounterpartyId,x.Status});
         b.Entity<Settlement>().ToTable(t=>{t.HasCheckConstraint("CK_Settlements_Direction","\"Direction\" IN ('receivable','payable')");t.HasCheckConstraint("CK_Settlements_Basis","\"BasisType\" IN ('order','delivery','return','manual') AND char_length(btrim(\"BasisReference\")) BETWEEN 1 AND 120");t.HasCheckConstraint("CK_Settlements_Amounts","\"TotalAmount\" > 0 AND \"PaidAmount\" >= 0 AND \"PaidAmount\" <= \"TotalAmount\"");});
         b.Entity<PaymentAllocation>().Property(x=>x.Amount).HasPrecision(18,2); b.Entity<PaymentAllocation>().HasIndex(x=>new{x.SettlementId,x.OperationId}).IsUnique(); b.Entity<PaymentAllocation>().HasOne(x=>x.Settlement).WithMany(x=>x.Allocations).HasForeignKey(x=>x.SettlementId).OnDelete(DeleteBehavior.Restrict); b.Entity<PaymentAllocation>().HasOne(x=>x.Operation).WithMany().HasForeignKey(x=>x.OperationId).OnDelete(DeleteBehavior.Restrict); b.Entity<PaymentAllocation>().HasOne<User>().WithMany().HasForeignKey(x=>x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
