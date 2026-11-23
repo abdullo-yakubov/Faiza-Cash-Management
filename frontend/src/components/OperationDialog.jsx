@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {Download,ShieldCheck} from 'lucide-react';
+import {Printer,ShieldCheck} from 'lucide-react';
 import {Dialog} from './Dialog';
 import {Field} from './ui';
 import {PasswordInput} from './PasswordInput';
@@ -33,7 +33,7 @@ export function OperationDialog({modal,boxes,currency,user,roles=[],busy,error,o
     }
   }
   let footer;
-  if(modal.kind==='details')footer=<><button className="button secondary" disabled={busy} onClick={()=>onDownload('/operations/'+row.id+'/document.pdf','Faiza-'+row.id+'.pdf')}><Download size={18}/>PDF документа</button>{editable&&<><button className="button secondary" onClick={()=>onModal({...modal,kind:'operation',type:row.type})}>Изменить</button><button className="button danger" onClick={()=>onModal({kind:'remove',row})}>Удалить черновик</button><button className="button primary" onClick={()=>onModal({kind:'confirm',row})}>Провести</button></>}{privileged&&row.status==='posted'&&!row.isReversal&&!row.reversalId&&<button className="button danger" onClick={()=>onModal({kind:'reverse',row})}>Сторнировать</button>}</>;
+  if(modal.kind==='details')footer=<><button className="button secondary" disabled={busy} onClick={()=>onDownload('/operations/'+row.id+'/document.pdf','Faiza-'+row.id+'.pdf')}><Printer size={18}/>Печать ордера PDF</button>{editable&&<><button className="button secondary" onClick={()=>onModal({...modal,kind:'operation',type:row.type})}>Изменить</button><button className="button danger" onClick={()=>onModal({kind:'remove',row})}>Удалить черновик</button><button className="button primary" onClick={()=>onModal({kind:'confirm',row})}>Провести</button></>}{privileged&&row.status==='posted'&&!row.isReversal&&!row.reversalId&&<button className="button danger" onClick={()=>onModal({kind:'reverse',row})}>Сторнировать</button>}</>;
   else if(modal.kind==='revokeAccess')footer=<><button type="button" className="button secondary" disabled={busy} onClick={onClose}>Отмена</button><button type="button" className="button danger" disabled={busy} onClick={()=>onSave()}>{busy?'Отзыв…':'Отозвать доступ'}</button></>;
   else if(['confirm','remove'].includes(modal.kind))footer=<><button className="button secondary" disabled={busy} onClick={onClose}>Отмена</button><button className={'button '+(modal.kind==='remove'?'danger':'primary')} disabled={busy} onClick={()=>onSave()}>{busy?'Выполнение…':modal.kind==='remove'?'Удалить черновик':'Подтвердить проведение'}</button></>;
   else footer=<><button type="button" className="button secondary" disabled={busy} onClick={onClose}>Отмена</button><button form="document-form" className="button primary" disabled={busy}>{busy?'Сохранение…':modal.kind==='operation'&&!row?'Создать черновик':modal.kind==='resetPassword'?'Сбросить пароль':'Сохранить'}</button></>;

@@ -36,7 +36,7 @@ public sealed class PdfReport : IPdfReport
                     details.Item().PaddingTop(10).Text("Основание: "+description);
                 });
                 column.Item().PaddingTop(22).Text("Сумма: "+Money(amount)).Bold().FontSize(16);
-                column.Item().PaddingTop(10).Text("Сумма прописью в этой учебной форме не сформирована.").FontColor(Colors.Grey.Darken1).FontSize(9);
+                column.Item().PaddingTop(8).Text("Сумма прописью: "+RussianMoneyWords.Format(amount,currency)).FontSize(11);
                 column.Item().PaddingTop(54).Row(row=>
                 {
                     row.RelativeItem().Column(signature=>{signature.Item().Text(income?"Принято от":"Выдано");signature.Item().PaddingTop(26).Text("____________________________");});
@@ -79,6 +79,11 @@ public sealed class PdfReport : IPdfReport
                 var income=lines.Where(x=>x.Type=="income").Sum(x=>x.Amount);var expense=lines.Where(x=>x.Type=="expense").Sum(x=>x.Amount);
                 c.Item().PaddingTop(16).Text("Приход: "+Money(income)+"   Расход: "+Money(expense)).Bold();
                 if(balances)c.Item().PaddingTop(8).Text("Остаток на конец: "+Money(opening+income-expense)).Bold().FontSize(12);
+                if(balances)c.Item().PaddingTop(40).Row(signatures=>
+                {
+                    signatures.RelativeItem().Column(signature=>{signature.Item().Text("Кассир");signature.Item().PaddingTop(28).Text("____________________________");});
+                    signatures.RelativeItem().Column(signature=>{signature.Item().Text("Бухгалтер");signature.Item().PaddingTop(28).Text("____________________________");});
+                });
                 c.Item().PaddingTop(24).Text("Учебное представление. Не является официальной бухгалтерской формой.").FontColor(Colors.Grey.Darken1).FontSize(8);
             });
             page.Footer().AlignRight().Text(t=>{t.Span("Faiza Cash · Страница ");t.CurrentPageNumber();t.Span(" / ");t.TotalPages();});
