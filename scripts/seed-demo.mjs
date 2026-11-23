@@ -3,15 +3,19 @@ import {api,setToken} from '../frontend/src/services/api.js';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 // Explicitly run only against a local educational database. No production hook.
-const config=JSON.parse(fs.readFileSync('.runtime/local.json','utf8'));
+const configPath='.runtime/local.json';
+const config=fs.existsSync(configPath)?JSON.parse(fs.readFileSync(configPath,'utf8')):{};
+const adminLogin=process.env.FAIZA_ADMIN_LOGIN||config.Seed__AdminLogin||'admin';
+const adminPassword=process.env.FAIZA_ADMIN_PASSWORD||config.Seed__AdminPassword;
+if(!adminPassword)throw new Error('Задайте FAIZA_ADMIN_PASSWORD локального администратора.');
 const base=process.env.FAIZA_API||'http://localhost:5080';const nativeFetch=globalThis.fetch;
 globalThis.fetch=(url,options)=>nativeFetch(new URL(url,base),options);
-const login=await api('/auth/login',{method:'POST',body:{login:config.Seed__AdminLogin,password:process.env.FAIZA_ADMIN_PASSWORD||config.Seed__AdminPassword}});setToken(login.accessToken);
+const login=await api('/auth/login',{method:'POST',body:{login:adminLogin,password:adminPassword}});setToken(login.accessToken);
 if(login.user.mustChangePassword){
  if(!process.argv.includes('--bootstrap')){console.log('Сначала смените первоначальный пароль в интерфейсе и задайте FAIZA_ADMIN_PASSWORD. Режим --bootstrap доступен только для явно запрошенной первоначальной подготовки учебной базы.');process.exit(1);}
  const newPassword=crypto.randomBytes(16).toString('hex')+'Aa1';
- await api('/auth/change-password',{method:'POST',body:{oldPassword:config.Seed__AdminPassword,newPassword}});
- config.Seed__AdminPassword=newPassword;fs.writeFileSync('.runtime/local.json',JSON.stringify(config,null,2));
+ await api('/auth/change-password',{method:'POST',body:{oldPassword:adminPassword,newPassword}});
+ config.Seed__AdminLogin=adminLogin;config.Seed__AdminPassword=newPassword;fs.mkdirSync('.runtime',{recursive:true});fs.writeFileSync(configPath,JSON.stringify(config,null,2),{mode:0o600});
  console.log('Пароль локального администратора изменён. Данные доступа сохранены только в .runtime/local.json.');
 }
 const boxes=await api('/cashboxes');if(boxes.length){console.log('Наполнение пропущено: в базе уже есть кассы. Существующие записи не изменялись.');process.exit(0);}
