@@ -1,47 +1,136 @@
+/* ==========================================================================
+   FAIZA GOLD — дизайн-токены (волна 1).
+   1) Шкалы (не зависят от темы): отступы, радиусы, типографика, движение.
+   2) Палитры-примитивы: нейтральные тёплые серые и приглушённое золото.
+   3) Семантические токены по темам: [data-theme="light"] и [data-theme="dark"].
+   Компоненты используют ТОЛЬКО семантические токены (--bg, --text, --accent…).
+   ========================================================================== */
 :root {
   color-scheme: light;
   font-family: Inter, "Segoe UI", Arial, sans-serif;
-  --brand-ink: #242321;
-  --brand-gold: #8b671e;
-  --brand-gold-soft: #f3ead4;
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
-  --shadow-card: 0 12px 36px rgb(36 35 33 / 7%);
+  /* отступы: 4 / 8 / 12 / 16 / 24 / 32 / 48 */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-12: 48px;
+  /* радиусы */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
+  /* типографика */
+  --font-sans: Inter, "Segoe UI", Arial, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --text-3xl: 34px;
+  --weight-regular: 450;
+  --weight-medium: 600;
+  --weight-bold: 750;
+  --leading-tight: 1.25;
+  --leading-normal: 1.55;
+  /* движение */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-out: cubic-bezier(.2, .7, .3, 1);
+  /* сенсорная цель */
+  --touch-target: 44px;
+  /* примитивы бренда */
+  --gold-50: #faf5e8;
+  --gold-100: #f3ead4;
+  --gold-300: #e2c477;
+  --gold-500: #b28d3f;
+  --gold-600: #8b671e;
+  --gold-700: #795b1e;
+  --gold-800: #5e4614;
+  --brand-ink: #242321;
+  --brand-gold: var(--gold-600);
+  --brand-gold-soft: var(--gold-100);
 }
 
 [data-theme="light"] {
-  --green: var(--brand-gold);
-  --soft: var(--brand-gold-soft);
+  color-scheme: light;
   --bg: #f7f6f2;
   --panel: #fffefa;
+  --panel-raised: #ffffff;
+  --panel-sunken: #f1efe8;
   --text: #27251f;
-  --muted: #6d6a60;
+  --muted: #625f56;
+  --subtle: #8a867b;
   --border: #e5e0d4;
+  --border-strong: #cfc8b7;
   --input: #fffefa;
+  --accent: #795b1e;
+  --accent-strong: #6b5019;
+  --accent-soft: #f3ead4;
+  --accent-contrast: #ffffff;
+  --income: #1c6142;
+  --income-bg: #e8f5ee;
+  --expense: #a12a35;
+  --expense-bg: #fdecee;
+  --focus-ring: #9a7a22;
+  --overlay: rgb(23 23 21 / 48%);
+  --skeleton: #ece8de;
+  --skeleton-shine: #f7f4ec;
+  --chart-income: #2f7d58;
+  --chart-expense: #b5474f;
+  --chart-neutral: #8b671e;
+  --chart-grid: #e5e0d4;
+  --shadow-1: 0 1px 2px rgb(36 35 33 / 6%);
+  --shadow-2: 0 6px 18px rgb(36 35 33 / 7%);
+  --shadow-3: 0 18px 48px rgb(36 35 33 / 16%);
+  --shadow-card: var(--shadow-2);
+  /* совместимость со старыми стилями */
+  --green: var(--brand-gold);
+  --soft: var(--accent-soft);
   background: var(--bg);
   color: var(--text);
-  color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --green: #dfbd70;
-  --soft: #302c24;
+  color-scheme: dark;
   --bg: #171715;
   --panel: #22221f;
+  --panel-raised: #2a2a26;
+  --panel-sunken: #1c1c1a;
   --text: #f1eee5;
   --muted: #c0bbad;
+  --subtle: #9c978a;
   --border: #454239;
+  --border-strong: #5c584c;
   --input: #292821;
+  --accent: #e2c477;
+  --accent-strong: #ecd08a;
+  --accent-soft: #3a3324;
+  --accent-contrast: #1d1a12;
+  --income: #8fd3ad;
+  --income-bg: #1d3328;
+  --expense: #ffaab3;
+  --expense-bg: #3d1d22;
+  --focus-ring: #e2c477;
+  --overlay: rgb(0 0 0 / 62%);
+  --skeleton: #2c2b27;
+  --skeleton-shine: #36352f;
+  --chart-income: #6cc196;
+  --chart-expense: #f08891;
+  --chart-neutral: #dfbd70;
+  --chart-grid: #3a3831;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 30%);
+  --shadow-2: 0 6px 18px rgb(0 0 0 / 28%);
+  --shadow-3: 0 18px 48px rgb(0 0 0 / 50%);
+  --shadow-card: var(--shadow-2);
+  --green: #dfbd70;
+  --soft: #302c24;
   background: var(--bg);
   color: var(--text);
-  color-scheme: dark;
 }
 
 [data-theme="light"] .brand,
