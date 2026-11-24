@@ -18,21 +18,8 @@ private sealed record AttentionItem(string Code,string Severity,string Title,str
 private sealed record NotificationItem(string Key,string Priority,DateOnly Date,string Reason,string ObjectType,long? ObjectId,string ActionHref);
 public static void MapCashApi(this WebApplication app,IConfiguration configuration) {
 app.MapReports(); app.MapAudit(); app.MapDirectories();
-app.MapGet("/api/backups/status", [Authorize(Roles = Admin)] async (BackupService backups, CancellationToken ct) => Results.Ok(await backups.StatusAsync(ct)));
-app.MapGet("/api/backups", [Authorize(Roles = Admin)] async (BackupService backups, CancellationToken ct) => Results.Ok(await backups.ListAsync(ct)));
-app.MapPost("/api/backups", [Authorize(Roles = Admin)] async (BackupService backups, HttpContext ctx, Audit audit, CancellationToken ct) =>
-    await BackupAction(async()=>{var result=await backups.CreateAsync(ct);await audit.Add(ctx.UserId(),"backup_created","backup",null,new{id=result.Id,result.SizeBytes,result.Sha256});return result;},
-        async error=>await audit.Add(ctx.UserId(),"backup_failed","backup",null,new{error}))).RequireRateLimiting("sensitive");
-app.MapPost("/api/backups/{id}/verify", [Authorize(Roles = Admin)] async (string id, BackupService backups, HttpContext ctx, Audit audit, CancellationToken ct) =>
-    await BackupAction(async()=>{var result=await backups.VerifyAsync(id, ct);await audit.Add(ctx.UserId(),"backup_verified","backup",null,new{id,result.Sha256});return result;},
-        async error=>await audit.Add(ctx.UserId(),"backup_verify_failed","backup",null,new{id,error}))).RequireRateLimiting("sensitive");
-app.MapPost("/api/backups/{id}/restore-test", [Authorize(Roles = Admin)] async (string id, BackupService backups, HttpContext ctx, Audit audit, CancellationToken ct) =>
-{
-    if (!backups.RestoreTestConfigured)
-        return Results.Problem("Изолированная тестовая база восстановления не сконфигурирована.", statusCode: 503);
-    return await BackupAction(async()=>{var result=await backups.RestoreTestAsync(id, ct);await audit.Add(ctx.UserId(),"backup_restore_tested","backup",null,new{id,destination="isolated-test-database",status=result.Status,result.DurationMs,matched=result.Reconciliation?.Matched});return result;},
-        async error=>await audit.Add(ctx.UserId(),"backup_restore_failed","backup",null,new{id,destination="isolated-test-database",error}));
-}).RequireRateLimiting("sensitive");app.MapGet("/health", async (CashDb db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok", utc = DateTime.UtcNow }) : Results.Problem("База данных недоступна.", statusCode: 503));
+app.MapBackupsEndpoints();
+app.MapGet("/health", async (CashDb db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok", utc = DateTime.UtcNow }) : Results.Problem("База данных недоступна.", statusCode: 503));
 
 app.MapPost("/api/auth/login", async (LoginDto input, HttpContext ctx, CashDb db, Audit audit) =>
 {
