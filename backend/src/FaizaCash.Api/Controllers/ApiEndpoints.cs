@@ -3,6 +3,10 @@ using FaizaCash.Application;
 using FaizaCash.Infrastructure;
 using FaizaCash.Infrastructure.Services;
 using FaizaCash.Api;
+using static FaizaCash.Api.RoleNames;
+using static FaizaCash.Api.EndpointHelpers;
+using static FaizaCash.Api.OperationsValidators;
+using static FaizaCash.Api.BackupResults;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -10,7 +14,6 @@ using Npgsql;
 
 namespace FaizaCash.Api;
 public static class ApiEndpoints {
-const string Admin = "admin", Accountant = "accountant", Manager = "manager", Auditor = "auditor";
 private sealed record AttentionItem(string Code,string Severity,string Title,string Message,decimal? Amount,string Href,long? ObjectId);
 private sealed record NotificationItem(string Key,string Priority,DateOnly Date,string Reason,string ObjectType,long? ObjectId,string ActionHref);
 public static void MapCashApi(this WebApplication app,IConfiguration configuration) {
@@ -649,57 +652,6 @@ app.MapGet("/api/analytics",[Authorize] async(HttpContext ctx,CashDb db,ICashbox
 }
 
 
-static async Task<IResult?> Validate(OperationInput x, CashDb db, CashOperation? previous=null)
-{
-    if (x.Date==DateOnly.MinValue || x.Description?.Length>1000 || x.Description?.Contains('\0')==true || x.Type is not ("income" or "expense") || x.Amount <= 0 || x.Amount > 9999999999999999.99m || decimal.Round(x.Amount,2) != x.Amount || string.IsNullOrWhiteSpace(x.Description) || x.Date > Local.Today) return Results.Problem("Проверьте тип, дату, сумму и содержание.", statusCode: 400);
-    var box = await db.Cashboxes.Include(c => c.Opening).SingleOrDefaultAsync(c => c.Id == x.CashboxId);
-    if (box is null || !box.Active || (box.Opening is not null && x.Date < box.Opening.Date)) return Results.Problem("Касса недоступна для этой даты.", statusCode: 400);
-    if(previous?.IsReversal==true)
-    {
-        if(x.CashboxId!=previous.CashboxId || x.Date!=previous.Date || x.Type!=previous.Type || x.Amount!=previous.Amount || x.CategoryId!=previous.CategoryId || x.CounterpartyId!=previous.CounterpartyId || x.DocumentTypeId!=previous.DocumentTypeId)
-            return Results.Problem("Финансовые реквизиты сторно изменять нельзя.",statusCode:409);
-        var original=await db.Operations.AsNoTracking().SingleOrDefaultAsync(o=>o.Id==previous.ReversalOfId);
-        if(original is null || original.ReversalId.HasValue || !ReversalRules.MatchesOriginal(previous,original,Local.Today))
-            return Results.Problem("Сторно не соответствует исходному документу.",statusCode:409);
-        return null; // Reversal retains the original category even though its direction is opposite.
-    }
-    var previousCategory=previous?.CategoryId;var previousType=previous?.Type;var previousParty=previous?.CounterpartyId;
-    if (!await db.Categories.AnyAsync(c => c.Id == x.CategoryId && (c.Active || c.Id==previousCategory&&c.Type==previousType) && c.Type == x.Type)) return Results.Problem("Укажите активную категорию нужного типа.", statusCode: 400);
-    if (x.CounterpartyId.HasValue && !await db.Counterparties.AnyAsync(c => c.Id == x.CounterpartyId && (c.Active||c.Id==previousParty))) return Results.Problem("Контрагент не найден.", statusCode: 400);
-    if (x.DocumentTypeId.HasValue && !await db.DocumentTypes.AnyAsync(c => c.Id == x.DocumentTypeId && c.Active)) return Results.Problem("Тип документа не найден.", statusCode: 400);
-    return null;
-}
-static async Task CaptureDocumentSnapshot(CashDb db,CashOperation operation,CancellationToken cancellationToken)
-{
-    var box=await db.Cashboxes.AsNoTracking().SingleAsync(x=>x.Id==operation.CashboxId,cancellationToken);
-    var category=await db.Categories.AsNoTracking().SingleAsync(x=>x.Id==operation.CategoryId,cancellationToken);
-    var organization=await db.Organizations.AsNoTracking().SingleAsync(cancellationToken);
-    operation.OrganizationNameSnapshot=organization.Name;
-    operation.CashboxNameSnapshot=box.Name;
-    operation.CashboxCodeSnapshot=box.Code;
-    operation.CategoryNameSnapshot=category.Name;
-    operation.CounterpartyNameSnapshot=operation.CounterpartyId.HasValue
-        ?await db.Counterparties.AsNoTracking().Where(x=>x.Id==operation.CounterpartyId).Select(x=>x.Name).SingleAsync(cancellationToken)
-        :null;
-}
-const int MaxListSize = 500;
-/// <summary>Bounded list: keeps the array contract, caps pageSize at 500 and reports the total in X-Total-Count.</summary>
-static async Task<IResult> ListPage<T>(HttpContext ctx, IQueryable<T> query, int? page, int? pageSize, CancellationToken ct)
-{
-    var size=Math.Clamp(pageSize??MaxListSize,1,MaxListSize);var current=Math.Clamp(page??1,1,1000000);
-    ctx.Response.Headers["X-Total-Count"]=(await query.CountAsync(ct)).ToString(System.Globalization.CultureInfo.InvariantCulture);
-    return Results.Ok(await query.Skip((current-1)*size).Take(size).ToListAsync(ct));
-}
-static async Task<IResult> BackupAction<T>(Func<Task<T>> run, Func<string,Task> onFailure)
-{
-    try { return Results.Ok(await run()); }
-    catch (ArgumentException ex) { await onFailure(ex.Message); return Results.Problem(ex.Message, statusCode: 400); }
-    catch (FileNotFoundException ex) { await onFailure(ex.Message); return Results.Problem(ex.Message, statusCode: 404); }
-    catch (InvalidDataException ex) { await onFailure(ex.Message); return Results.Problem(ex.Message, statusCode: 422); }
-    catch (InvalidOperationException ex) { await onFailure(ex.Message); return Results.Problem(ex.Message, statusCode: 503); }
-}
-static object TransferView(CashTransfer x) => new { x.Id,x.SourceCashboxId,x.TargetCashboxId,x.Date,x.Amount,x.Description,x.SourceOperationId,x.TargetOperationId,x.CreatedAt,status="posted" };
-static async Task<IResult> Paged<T, R>(IQueryable<T> q, int page, int size, Func<T, R> map) { page = Math.Max(1, page); size = Math.Clamp(size, 1, 100); var count = await q.CountAsync(); var rows = await q.Skip((page - 1) * size).Take(size).ToListAsync(); return Results.Ok(new { page, pageSize = size, total = count, items = rows.Select(map) }); }
 public static async Task Seed(CashDb db, IConfiguration cfg, ILogger log)
 {
     if(!await db.Organizations.AnyAsync()) { db.Organizations.Add(new()); await db.SaveChangesAsync(); }
