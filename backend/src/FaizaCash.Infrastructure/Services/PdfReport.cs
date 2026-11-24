@@ -76,9 +76,10 @@ public sealed class PdfReport : IPdfReport
                         if(balances)t.Cell().BorderBottom(1).BorderColor("#E9EEEB").Padding(6).Text(row.Balance.HasValue?Money(row.Balance.Value):"—");
                     }
                 });
-                var income=lines.Where(x=>x.Type=="income").Sum(x=>x.Amount);var expense=lines.Where(x=>x.Type=="expense").Sum(x=>x.Amount);
-                c.Item().PaddingTop(16).Text("Приход: "+Money(income)+"   Расход: "+Money(expense)).Bold();
-                if(balances)c.Item().PaddingTop(8).Text("Остаток на конец: "+Money(opening+income-expense)).Bold().FontSize(12);
+                // "opening" lines are cashbox initial balances activated inside the period: part of the balance, not of income.
+                var income=lines.Where(x=>x.Type=="income").Sum(x=>x.Amount);var expense=lines.Where(x=>x.Type=="expense").Sum(x=>x.Amount);var activations=lines.Where(x=>x.Type=="opening").Sum(x=>x.Amount);
+                c.Item().PaddingTop(16).Text("Приход: "+Money(income)+"   Расход: "+Money(expense)+(activations!=0?"   Начальные остатки касс в периоде: "+Money(activations):"")).Bold();
+                if(balances)c.Item().PaddingTop(8).Text("Остаток на конец: "+Money(opening+activations+income-expense)).Bold().FontSize(12);
                 if(balances)c.Item().PaddingTop(40).Row(signatures=>
                 {
                     signatures.RelativeItem().Column(signature=>{signature.Item().Text("Кассир");signature.Item().PaddingTop(28).Text("____________________________");});

@@ -38,6 +38,31 @@ export function demoShiftPlan(rows){
   });
 }
 
+// FG7-024: synthetic three-branch network. Branch ids 1..3 are seeded by the Branches migration
+// (Душанбе, Худжанд, Бохтар). All names are fictional and marked «демо».
+export const demoCashboxes=[
+  {code:'DSH-MAIN',name:'Основная касса · Душанбе',branchId:1,opening:'25000.00',balanceLimit:null},
+  {code:'KHJ-01',name:'Касса филиала · Худжанд',branchId:2,opening:'8000.00',balanceLimit:'20000.00'},
+  {code:'BKH-01',name:'Касса филиала · Бохтар',branchId:3,opening:'5000.00',balanceLimit:'15000.00'}
+];
+// Operations for the branch cashboxes, by day offset from today (negative = past).
+export const demoBranchOperations=[
+  {box:'KHJ-01',day:-12,type:'income',category:'Выручка от реализации',party:0,amount:'3200.00',description:'Выручка филиала Худжанд (демо)'},
+  {box:'KHJ-01',day:-12,type:'expense',category:'Хозяйственные расходы',party:1,amount:'640.00',description:'Канцтовары для филиала (демо)'},
+  {box:'KHJ-01',day:-6,type:'income',category:'Выручка от реализации',party:0,amount:'2750.50',description:'Выручка филиала Худжанд (демо)'},
+  {box:'BKH-01',day:-9,type:'income',category:'Выручка от реализации',party:0,amount:'1900.00',description:'Выручка филиала Бохтар (демо)'},
+  {box:'BKH-01',day:-9,type:'expense',category:'Подотчётные суммы',party:2,amount:'400.00',description:'Выдача под отчёт (демо)'},
+  {box:'BKH-01',day:-4,type:'income',category:'Выручка от реализации',party:0,amount:'1350.00',description:'Выручка филиала Бохтар (демо)'}
+];
+export const demoTransfer={day:-3,from:'DSH-MAIN',to:'KHJ-01',amount:'2000.00',description:'Подкрепление кассы филиала Худжанд (демо)'};
+// One historical shift is closed with a cash shortage so the Dashboard "attention" block has data.
+export const demoDiscrepancy={box:'BKH-01',day:-9,difference:'-15.00'};
+export const demoDebts=[
+  {party:0,box:'DSH-MAIN',direction:'receivable',basisType:'order',basisReference:'ЗАКАЗ-1042 (демо)',totalAmount:'6000.00',dueOffset:10,payment:'2500.00',representative:true},
+  {party:1,box:'DSH-MAIN',direction:'payable',basisType:'delivery',basisReference:'ПОСТАВКА-77 (демо)',totalAmount:'3000.00',dueOffset:-5,payment:null,representative:false},
+  {party:0,box:'KHJ-01',direction:'receivable',basisType:'order',basisReference:'ЗАКАЗ-1050 (демо)',totalAmount:'1200.00',dueOffset:-1,payment:null,representative:true}
+];
+
 function moneyFromCents(cents){
   return `${cents/100n}.${String(cents%100n).padStart(2,'0')}`;
 }

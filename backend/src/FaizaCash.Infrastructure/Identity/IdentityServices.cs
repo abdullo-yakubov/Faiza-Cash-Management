@@ -9,7 +9,9 @@ using FaizaCash.Domain;
 using FaizaCash.Application;
 namespace FaizaCash.Infrastructure;
 public class Audit(CashDb db) { public async Task Add(Guid? user, string action, string entity, long? id, object data) { db.AuditEvents.Add(new() { UserId = user, Action = action, Entity = entity, EntityId = id, Details = System.Text.Json.JsonSerializer.Serialize(data) }); await db.SaveChangesAsync(); } }
-public static class Password { public static bool Valid(string? s) => s is { Length: >= 10 } && s.Any(char.IsLetter) && s.Any(char.IsDigit); public static string Hash(string s) { var salt = RandomNumberGenerator.GetBytes(16); var hash = Rfc2898DeriveBytes.Pbkdf2(s, salt, 600000, HashAlgorithmName.SHA512, 32); return $"{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}"; } public static bool Verify(string s, string stored) { try { var p = stored.Split(':'); var test = Rfc2898DeriveBytes.Pbkdf2(s, Convert.FromBase64String(p[0]), 600000, HashAlgorithmName.SHA512, 32); return CryptographicOperations.FixedTimeEquals(test, Convert.FromBase64String(p[1])); } catch { return false; } } }
+public static class Password { /// <summary>Hash of a random secret, verified for unknown logins so timing does not reveal which logins exist (D-07).</summary>
+    public static readonly string DummyHash = Hash(Convert.ToHexString(RandomNumberGenerator.GetBytes(24)));
+    public static bool Valid(string? s) => s is { Length: >= 10 } && s.Any(char.IsLetter) && s.Any(char.IsDigit); public static string Hash(string s) { var salt = RandomNumberGenerator.GetBytes(16); var hash = Rfc2898DeriveBytes.Pbkdf2(s, salt, 600000, HashAlgorithmName.SHA512, 32); return $"{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}"; } public static bool Verify(string s, string stored) { try { var p = stored.Split(':'); var test = Rfc2898DeriveBytes.Pbkdf2(s, Convert.FromBase64String(p[0]), 600000, HashAlgorithmName.SHA512, 32); return CryptographicOperations.FixedTimeEquals(test, Convert.FromBase64String(p[1])); } catch { return false; } } }
 public static class Tokens
 {
     public const string Cookie = "faiza_refresh";

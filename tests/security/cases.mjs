@@ -66,7 +66,10 @@ let cashier,foreign;
   await ok('/access',{method:'POST',body:{userId:credentials.accountant.user.id,cashboxId:box}});
   await ok('/access',{method:'POST',body:{userId:credentials.manager.user.id,cashboxId:foreign.id}});
   await ok('/access',{method:'POST',body:{userId:credentials.auditor.user.id,cashboxId:box}});
-  const party=await ok('/counterparties',{method:'POST',body:{name:'Scoped settlement '+suffix,kind:'client',taxCode:null,contact:null}});
+  const partyName='Scoped settlement '+suffix;
+  await ok('/counterparties',{method:'POST',body:{name:partyName,kind:'client',taxCode:null,contact:null}});
+  const party=(await ok('/counterparties?q='+encodeURIComponent(partyName))).find(x=>x.name===partyName);
+  assert.ok(party,'created counterparty must be readable');
   const settlement=await ok('/settlements',{method:'POST',body:{counterpartyId:party.id,cashboxId:foreign.id,direction:'receivable',basisType:'manual',basisReference:'SCOPE-'+suffix,totalAmount:'12.00',dueDate:date}});
   const assignments={accountant:box,cashier:box,manager:foreign.id,auditor:box};
   const tokens={accountant:credentials.accountant.token,cashier:cashierToken,manager:credentials.manager.token,auditor:credentials.auditor.token};
@@ -157,6 +160,30 @@ let cashier,foreign;
   const finalPassword=crypto.randomBytes(14).toString('hex')+'Bb2';
   assert.equal((await request('/auth/change-password',{method:'POST',body:{oldPassword:temporaryPassword,newPassword:finalPassword},auth:resetBody.accessToken,cookies:resetLogin.headers.get('set-cookie').split(';')[0]})).status,204);
   assert.equal((await ok('/auth/me',{auth:resetBody.accessToken,cookies:null})).mustChangePassword,false);
+ });
+ await test('D-05 representative receipts validate money/keys and never return another user\'s receipt for a reused key',async()=>{
+  const partyName='Receipt client '+suffix;
+  await ok('/counterparties',{method:'POST',body:{name:partyName,kind:'client',taxCode:null,contact:null}});
+  const party=(await ok('/counterparties?q='+encodeURIComponent(partyName))).find(x=>x.name===partyName);
+  const accountantPassword=crypto.randomBytes(12).toString('hex')+'Aa1';
+  const accountant=await ok('/users',{method:'POST',body:{login:'receipt'+suffix,fullName:'Receipt accountant',password:accountantPassword,roles:['accountant'],mustChangePassword:false}});
+  await ok('/access',{method:'POST',body:{userId:accountant.id,cashboxId:box}});
+  const accountantToken=(await ok('/auth/login',{method:'POST',body:{login:accountant.login,password:accountantPassword},auth:null,cookies:null})).accessToken;
+  const body={representativeId:admin.id,counterpartyId:party.id,basisType:'order',basisReference:'RCPT-'+suffix,amount:'10.00',cashboxId:box,requestKey:crypto.randomUUID()};
+  for(const amount of ['1.005','0','-1','10000000000000000'])
+   assert.equal((await request('/representative-receipts',{method:'POST',body:{...body,amount,requestKey:crypto.randomUUID()}})).status,400,'amount '+amount);
+  assert.equal((await request('/representative-receipts',{method:'POST',body:{...body,basisReference:'x'.repeat(121),requestKey:crypto.randomUUID()}})).status,400,'long basis reference');
+  assert.equal((await request('/representative-receipts',{method:'POST',body:{...body,requestKey:'00000000-0000-0000-0000-000000000000'}})).status,400,'empty request key');
+  const first=await request('/representative-receipts',{method:'POST',body});
+  assert.equal(first.status,201);const created=await first.json();
+  const repeated=await ok('/representative-receipts',{method:'POST',body});
+  assert.equal(repeated.id,created.id,'same author and payload is idempotent');
+  assert.equal((await request('/representative-receipts',{method:'POST',body:{...body,amount:'11.00'}})).status,409,'changed payload');
+  const foreign=await request('/representative-receipts',{method:'POST',body,auth:accountantToken,cookies:null});
+  assert.equal(foreign.status,409,'another author reusing the key');
+  assert.ok(!(await foreign.text()).includes('"id":'+created.id),'foreign receipt must not be disclosed');
+  const audit=await ok('/audit?action=representative_receipt_created&pageSize=100');
+  assert.equal(audit.items.filter(x=>x.entityId===created.id).length,1);
  });
 
 }

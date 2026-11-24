@@ -17,6 +17,8 @@ builder.WebHost.ConfigureKestrel(x => x.Limits.MaxRequestBodySize = 6 * 1024 * 1
 if (builder.Environment.IsProduction())
 {
     if(!builder.Configuration.GetValue<bool>("RefreshCookie:Secure"))throw new InvalidOperationException("Production requires RefreshCookie:Secure=true.");
+    // D-09: production backups must be encrypted at rest.
+    if(FaizaCash.Infrastructure.Services.BackupCrypto.ParseKey(builder.Configuration["Backups:EncryptionKey"]) is null)throw new InvalidOperationException("Production requires Backups:EncryptionKey (base64, 32 bytes).");
     var configuredProxies=builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>()??[];
     if(configuredProxies.Length==0)throw new InvalidOperationException("Production requires at least one trusted ForwardedHeaders:KnownProxies entry.");
     var trustedProxies=configuredProxies.Select(value=>IPAddress.TryParse(value,out var address)?address:throw new InvalidOperationException($"Invalid trusted proxy address: {value}")).ToArray();
@@ -42,6 +44,7 @@ builder.Services.AddScoped<ICashboxAccess,CashboxAccessService>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.AddScoped<ILedgerService,LedgerService>();
+builder.Services.AddScoped<IBalanceService,BalanceService>();
 builder.Services.AddSingleton<IPdfReport,PdfReport>();
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole();
@@ -55,7 +58,13 @@ if (frontendOrigins.Length == 0)
     frontendOrigins = ["http://localhost:8085", "http://127.0.0.1:8085"];
 }
 builder.Services.AddCors(o=>o.AddDefaultPolicy(p=>p.WithOrigins(frontendOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
-builder.Services.AddRateLimiter(o=> { o.RejectionStatusCode=429; o.AddPolicy("login", c=>System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "unknown", _=> new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit=15,Window=TimeSpan.FromMinutes(1),QueueLimit=0 })); });
+builder.Services.AddRateLimiter(o=>
+{
+    o.RejectionStatusCode=429;
+    o.AddPolicy("login", c=>System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "unknown", _=> new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit=15,Window=TimeSpan.FromMinutes(1),QueueLimit=0 }));
+    // D-06: authenticated callers are partitioned by user id, anonymous refresh calls by client IP.
+    o.AddPolicy("sensitive", c=>System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(c.User.Identity?.IsAuthenticated==true ? "user:"+c.User.FindFirst(ClaimTypes.NameIdentifier)?.Value : "ip:"+(c.Connection.RemoteIpAddress?.ToString() ?? "unknown"), _=> new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit=20,Window=TimeSpan.FromMinutes(1),QueueLimit=0 }));
+});
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(x => x.TokenValidationParameters = new()
 {
     ValidateIssuer = true, ValidIssuer = jwtIssuer,
@@ -65,6 +74,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     NameClaimType = ClaimTypes.NameIdentifier, RoleClaimType = ClaimTypes.Role
 });
 builder.Services.AddAuthorization();
+builder.Services.AddFaizaOpenApi();
 var app = builder.Build();
 app.UseForwardedHeaders();
 if(app.Environment.IsProduction()||app.Environment.IsStaging()) { app.UseHttpsRedirection(); app.UseHsts(); }
@@ -81,7 +91,7 @@ app.Use(async (c, next) =>
     c.Response.Headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self'; script-src 'self'; base-uri 'self'; frame-ancestors 'none'";
     await next();
 });
-app.UseCors(); app.UseMiddleware<RequestMiddleware>(); app.UseRateLimiter(); app.UseAuthentication(); app.UseAuthorization(); app.UseMiddleware<AccessMiddleware>(); app.UseMiddleware<DirectoryCacheMiddleware>();
+app.UseCors(); app.UseMiddleware<RequestMiddleware>(); app.UseAuthentication(); app.UseRateLimiter(); app.UseAuthorization(); app.UseMiddleware<AccessMiddleware>(); app.UseMiddleware<DirectoryCacheMiddleware>();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CashDb>();
@@ -92,4 +102,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapCashApi(builder.Configuration);
+// The API contract lists every route and its role rule, so it is published to administrators only.
+app.MapOpenApi("/api/openapi/{documentName}.json").RequireAuthorization(p => p.RequireRole("admin")).ExcludeFromDescription();
 app.Run();

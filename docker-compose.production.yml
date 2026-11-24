@@ -73,6 +73,7 @@ services:
       ConnectionStrings__BackupRestore: Host=backup-restore-db;Database=faiza_restore;Username=faiza_restore;Password=${BACKUP_RESTORE_DB_PASSWORD:?Set a separate disposable restore DB password}
       Backups__RestoreHost: backup-restore-db
       Backups__RestoreDatabase: faiza_restore
+      Backups__EncryptionKey: ${BACKUPS__ENCRYPTIONKEY:?Set a base64 32-byte backup encryption key and store a copy outside the server}
       Jwt__Key: ${JWT__KEY:?Set a production JWT key}
       Jwt__Issuer: FaizaCash
       Jwt__Audience: FaizaCash

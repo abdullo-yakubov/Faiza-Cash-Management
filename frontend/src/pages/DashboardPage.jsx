@@ -27,6 +27,9 @@ const presets={
   month:()=>({from:iso(Date.now()).slice(0,8)+'01',to:iso(Date.now())})
 };
 function Loading(){return <div className="v5-skeleton" role="status" aria-label="Загрузка"><i/><i/><i/></div>}
+// FG7-007: severity is conveyed by text and colour together; colours come from tokens.css.
+const severityLabel={danger:'Критично',warning:'Внимание',info:'Сведения'};
+const debtStatusLabel={open:'Открыта',partially_paid:'Частично оплачена',paid:'Оплачена'};
 
 export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],parties=[]}){
   const [result,setResult]=useState(null);
@@ -93,7 +96,12 @@ export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],
     })}</div>
     <section className="panel dashboard-attention" aria-labelledby="dashboard-attention-title">
       <h2 id="dashboard-attention-title">Требует внимания</h2>
-      {d.warnings?.length?<ul>{d.warnings.map((item,index)=><li key={item.code+':'+index}>{item.message}{item.amount!=null&&<strong>{money(item.amount,currency)}</strong>} {item.cashboxId && <a href={routeHash({page:"operations",box:item.cashboxId,from:f.from,to:f.to,status:"posted"})}>Документы кассы</a>}{item.code==="overdue_debt" && <a href="#/debts">Задолженности</a>}</li>)}</ul>:<p className="muted">В выбранных кассах и периоде отклонений не обнаружено.</p>}
+      {d.attention?.length?<ul className="attention-list">{d.attention.map((item,index)=><li key={item.code+':'+(item.objectId??index)} className={'attention-item severity-'+item.severity}>
+        <span className="attention-level">{severityLabel[item.severity]||'Внимание'}</span>
+        <div><strong>{item.title}</strong><p>{item.message}</p></div>
+        {item.amount!=null&&<strong className="attention-amount">{money(item.amount,currency)}</strong>}
+        <a href={item.code==='cash_limit'?routeHash({page:'operations',box:item.objectId,from:f.from,to:f.to,status:'posted'}):item.href}>Открыть</a>
+      </li>)}</ul>:<p className="muted attention-ok"><span className="attention-level">Норма</span> В выбранных кассах и периоде отклонений не обнаружено.</p>}
     </section>
     <section className="panel"><div className="panel-heading"><h2>Приход и расход за периоды</h2></div><div className="v5-kpis">{periods.map(([label,income,expense])=><div className="stat" key={label}><span className="stat-label">{label}</span><strong className="stat-value">+ {money(d.periodTotals?.[income],currency)}</strong><span className="stat-label">− {money(d.periodTotals?.[expense],currency)}</span></div>)}</div></section>
     <div className="chart-grid">
@@ -103,7 +111,7 @@ export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],
     <section className="panel chart-panel"><div className="panel-heading"><div><h2>Динамика денежного остатка</h2><p>По выбранным доступным кассам, с учётом переводов</p></div></div><div className="chart">{balanceSeries.length?<ResponsiveContainer width="100%" height="100%"><LineChart data={balanceSeries}><CartesianGrid vertical={false} stroke="var(--border)"/><XAxis dataKey="date" tick={{fontSize:11,fill:'var(--muted)'}}/><YAxis tick={{fontSize:11,fill:'var(--muted)'}}/><Tooltip contentStyle={{background:'var(--panel)',borderColor:'var(--border)'}} formatter={value=>money(value,currency)}/><Line type="monotone" dataKey="balance" name="Остаток" stroke="#168568" strokeWidth={2} dot={false} isAnimationActive={!reduceMotion}/></LineChart></ResponsiveContainer>:<p className="empty">Нет данных за период.</p>}</div></section>
     <h3>Сравнение касс и филиалов</h3>
     <div className="v5-cards">{(d.balances||[]).map(x=><article className="v5-card" key={x.id}><small>{x.branch}</small><h3>{x.name}</h3><strong>{money(x.balance,currency)}</strong>{x.limit!=null&&exceeds(x.balance,x.limit)&&<span className="badge draft">Лимит превышен</span>}</article>)}</div>
-    <div className="v5-two"><div className="v5-note"><h3>Филиалы</h3>{(d.branches||[]).map(x=><div className="v5-history" key={x.id}>{x.name} · {money(x.balance,currency)}</div>)}</div>{d.canViewDebts&&<div className="v5-note"><h3>Задолженности</h3>{(d.debtStatuses||[]).map(x=><div className="v5-history" key={x.status}>{x.status} · {x.count} · {money(x.total,currency)}</div>)}{(d.debts||[]).map(x=><div className="v5-history" key={x.direction}>{x.direction==='receivable'?'К получению':'К оплате'} · {money(x.total,currency)}</div>)}</div>}</div>
+    <div className="v5-two"><div className="v5-note"><h3>Филиалы</h3>{(d.branches||[]).map(x=><div className="v5-history" key={x.id}>{x.name} · {money(x.balance,currency)}</div>)}</div>{d.canViewDebts&&<div className="v5-note"><h3>Задолженности</h3>{(d.debtStatuses||[]).map(x=><div className="v5-history" key={x.status}>{debtStatusLabel[x.status]||x.status} · {x.count} · {money(x.total,currency)}</div>)}{(d.debts||[]).map(x=><div className="v5-history" key={x.direction}>{x.direction==='receivable'?'К получению':'К оплате'} · {money(x.total,currency)}</div>)}</div>}</div>
     <section className="panel"><div className="panel-heading"><h2>Последние операции</h2></div>{(d.latestOperations||[]).map(x=><div className="v5-history" key={x.id}><span>{x.date} · {d.balances?.find(b=>b.id===x.cashboxId)?.name||'Касса'} · {x.transfer?'Перевод':x.type==='income'?'Приход':'Расход'} · {x.description} · {x.status==='posted'?'Проведена':'Черновик'}</span><strong>{money(x.amount,currency)}</strong><button className="button secondary" type="button" onClick={()=>onDocument(x)}>Открыть документ № {x.id}</button></div>)}{!d.latestOperations?.length&&<p className="muted">Операций пока нет.</p>}</section>
     </>}
   </section>;

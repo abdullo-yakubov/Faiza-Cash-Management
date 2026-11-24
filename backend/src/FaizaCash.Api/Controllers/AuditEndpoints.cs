@@ -12,6 +12,13 @@ public static class AuditEndpoints
         ["cashbox_created"]="Создана касса",["cash_access_granted"]="Выдан доступ к кассе",["cash_access_revoked"]="Отозван доступ к кассе",["operation_created"]="Создан черновик",["operation_updated"]="Изменён черновик",
         ["operation_deleted"]="Удалён черновик",["operation_posted"]="Проведён кассовый документ",["reversal_created"]="Создано сторно",
         ["report_exported"]="Выгружен отчёт CSV",["pdf_exported"]="Выгружен отчёт PDF",
+        ["user_password_reset"]="Сброшен пароль пользователя",["branch_created"]="Создан филиал",["branch_updated"]="Изменён филиал",
+        ["cashbox_updated"]="Изменена касса",["cashbox_deactivated"]="Касса деактивирована",["cashbox_opening_set"]="Задан начальный остаток кассы",
+        ["shift_opened"]="Открыта кассовая смена",["shift_closed"]="Закрыта кассовая смена",["settings_updated"]="Изменены настройки организации",
+        ["cash_transfer_posted"]="Проведён межкассовый перевод",["settlement_created"]="Создана задолженность",["settlement_payment_allocated"]="Распределён платёж по задолженности",["settlement_cancelled"]="Отменена задолженность",
+        ["representative_receipt_created"]="Зарегистрировано получение представителем",["representative_receipt_handed_over"]="Деньги переданы кассиру",["representative_receipt_accepted"]="Приём денег подтверждён",["representative_receipt_cancelled"]="Квитанция представителя отменена",
+        ["backup_created"]="Создана резервная копия",["backup_failed"]="Ошибка резервного копирования",["backup_verified"]="Проверена резервная копия",["backup_verify_failed"]="Проверка резервной копии не пройдена",
+        ["backup_restore_tested"]="Проверено восстановление копии",["backup_restore_failed"]="Восстановление копии не пройдено",["notification_read"]="Уведомление прочитано",
         ["data_added"]="Добавлена запись",["data_modified"]="Изменена запись",["data_deleted"]="Удалена запись"
     };
     private static readonly Dictionary<string,string> Entities=new()
@@ -19,7 +26,10 @@ public static class AuditEndpoints
         ["user"]="Пользователь",["User"]="Пользователь",["UserRole"]="Роль пользователя",["Role"]="Роль",
         ["cashbox"]="Касса",["Cashbox"]="Касса",["operation"]="Кассовый документ",["CashOperation"]="Кассовый документ",
         ["report"]="Отчёт",["Category"]="Категория",["Counterparty"]="Контрагент",["Organization"]="Организация",
-        ["DocumentSequence"]="Нумерация документов",["CashAccess"]="Доступ к кассе",["Currency"]="Валюта",["DocumentType"]="Вид документа",["CashShift"]="Кассовый день",["CashboxOpening"]="Начальный остаток"
+        ["DocumentSequence"]="Нумерация документов",["CashAccess"]="Доступ к кассе",["Currency"]="Валюта",["DocumentType"]="Вид документа",["CashShift"]="Кассовый день",["CashboxOpening"]="Начальный остаток",
+        ["shift"]="Кассовая смена",["backup"]="Резервная копия",["organization"]="Организация",["branch"]="Филиал",["Branch"]="Филиал",["settlement"]="Задолженность",["Settlement"]="Задолженность",
+        ["cash_transfer"]="Межкассовый перевод",["representative_receipt"]="Квитанция представителя",["branch_report"]="Отчёт по филиалу",["transfer_report"]="Отчёт по переводам",["settlement_report"]="Отчёт по задолженностям",
+        ["shift_report"]="Отчёт по сменам",["representative_report"]="Отчёт по представителям",["notification"]="Уведомление"
     };
     public static void MapAudit(this WebApplication app)
     {
@@ -30,6 +40,8 @@ public static class AuditEndpoints
         }));
         group.MapGet("",async(CashDb db,DateTime? from,DateTime? to,Guid? userId,string? entity,string? action,bool? includeTechnical,int page=1,int pageSize=50)=>
         {
+            if(entity?.Length>80||action?.Length>80||entity?.Contains('\0')==true||action?.Contains('\0')==true)return Results.Problem("Некорректный фильтр журнала.",statusCode:400);
+            from=ToUtc(from,false);to=ToUtc(to,true);
             var rows=db.AuditEvents.AsNoTracking().Where(x=>(!from.HasValue||x.CreatedAt>=from)&&(!to.HasValue||x.CreatedAt<=to)&&(!userId.HasValue||x.UserId==userId)&&(entity==null||x.Entity==entity)&&(action==null||x.Action==action));
             // No events are removed. Technical grouping is an explicit optional filter.
             if(includeTechnical==false)rows=rows.Where(x=>!x.Action.StartsWith("data_") || !(new[]{"CashOperation","DocumentSequence","UserRole","Role","Currency"}).Contains(x.Entity));
@@ -49,6 +61,18 @@ public static class AuditEndpoints
                 return new {e.Id,e.UserId,e.Action,e.Entity,e.EntityId,e.CreatedAt,details,userName,actionName,entityName,description,isTechnical=e.Action.StartsWith("data_")};
             })});
         });
+    }
+    /// <summary>
+    /// A value without offset (for example ?from=2026-11-17) is an Asia/Dushanbe business time; a bare `to` date covers the whole day.
+    /// Npgsql accepts only UTC for timestamptz, so an unspecified kind used to fail with 500.
+    /// </summary>
+    internal static DateTime? ToUtc(DateTime? value,bool endOfDay)
+    {
+        if(value is not {} v)return null;
+        if(v.Kind==DateTimeKind.Utc)return v;
+        if(v.Kind==DateTimeKind.Local)return v.ToUniversalTime();
+        if(endOfDay&&v.TimeOfDay==TimeSpan.Zero)v=v.AddDays(1).AddTicks(-1);
+        return TimeZoneInfo.ConvertTimeToUtc(v,TimeZoneInfo.FindSystemTimeZoneById("Asia/Dushanbe"));
     }
     private static string SafeDetails(string raw)
     {

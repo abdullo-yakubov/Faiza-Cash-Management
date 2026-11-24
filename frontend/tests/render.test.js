@@ -38,3 +38,17 @@ test('document dialog keeps actions outside its scroll area and respects draft o
     assert.match(reset,/Сброс пароля сотрудника/);assert.match(reset,/Подтвердите пароль/);assert.match(reset,/Сбросить пароль/);
   }finally{await server.close();}
 });
+test('report export panel, debt representative filter and dashboard attention render accessibly',async()=>{
+  const server=await createServer({configFile:false,server:{middlewareMode:true},optimizeDeps:{noDiscovery:true}});
+  try{
+    const {ReportExports}=await server.ssrLoadModule('/src/pages/ReportsPage.jsx');
+    const boxes=[{id:7,name:'Основная касса',branchId:2,branch:'Худжанд'}];
+    const html=renderToStaticMarkup(React.createElement(ReportExports,{box:'7',boxes,from:'2026-11-01',to:'2026-11-24',canViewDebts:true,busy:false,onDownload(){}}));
+    for(const label of ['Отчёт по кассовым сменам: CSV','Отчёт по филиалу «Худжанд»: PDF','Межкассовые переводы: CSV','Задолженности и платежи: PDF','Торговые представители: CSV'])assert.match(html,new RegExp('aria-label="'+label+'"'));
+    const cashier=renderToStaticMarkup(React.createElement(ReportExports,{box:'7',boxes,from:'2026-11-01',to:'2026-11-24',canViewDebts:false,busy:false,onDownload(){}}));
+    assert.doesNotMatch(cashier,/Задолженности и платежи/);assert.doesNotMatch(cashier,/Торговые представители/);
+    const {DebtsPage}=await server.ssrLoadModule('/src/pages/V5Pages.jsx');
+    const debts=renderToStaticMarkup(React.createElement(DebtsPage,{parties:[],boxes,representatives:[{id:'r1',fullName:'Саидов Фарид'}],currency:'TJS',canWrite:true}));
+    assert.ok(debts.includes('Загрузка'),'debts page renders its loading state without a ReferenceError');
+  }finally{await server.close();}
+});

@@ -798,6 +798,8 @@ namespace FaizaCash.Infrastructure.Migrations
 
                             t.HasCheckConstraint("CK_RepresentativeReceipts_Basis", "\"BasisType\" IN ('order','delivery','return','manual')");
 
+                            t.HasCheckConstraint("CK_RepresentativeReceipts_Reference", "char_length(btrim(\"BasisReference\")) BETWEEN 1 AND 120");
+
                             t.HasCheckConstraint("CK_RepresentativeReceipts_Status", "\"Status\" IN ('collected','handed_over','accepted','cancelled')");
                         });
                 });
@@ -865,6 +867,9 @@ namespace FaizaCash.Infrastructure.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<Guid?>("RepresentativeId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text");
@@ -876,6 +881,8 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CashboxId");
+
+                    b.HasIndex("RepresentativeId");
 
                     b.HasIndex("CounterpartyId", "Status");
 
@@ -1194,6 +1201,11 @@ namespace FaizaCash.Infrastructure.Migrations
                         .HasForeignKey("CounterpartyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("FaizaCash.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("RepresentativeId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Cashbox");
 
