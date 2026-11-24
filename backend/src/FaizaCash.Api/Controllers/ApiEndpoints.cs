@@ -24,23 +24,13 @@ app.MapUsersEndpoints();
 app.MapOrganizationEndpoints();
 app.MapShiftsEndpoints();
 app.MapTransfersEndpoints();
+app.MapCatalogsEndpoints();
 app.MapGet("/health", async (CashDb db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok", utc = DateTime.UtcNow }) : Results.Problem("База данных недоступна.", statusCode: 503));
 
 
 
 
 
-app.MapGet("/api/categories", [Authorize] async (HttpContext ctx, CashDb db, string? type, string? q, int? page, int? pageSize) =>
-{
-    if(type is not null&&type is not ("income" or "expense"))return Results.Problem("Недопустимое направление категории.",statusCode:400);
-    if(q?.Length>160||q?.Contains('\0')==true)return Results.Problem("Некорректный поисковый запрос.",statusCode:400);
-    return await ListPage(ctx,db.Categories.AsNoTracking().Where(x=>(type==null||x.Type==type)&&(q==null||x.Name.Contains(q))).OrderBy(x=>x.Name).ThenBy(x=>x.Id),page,pageSize,ctx.RequestAborted);
-});
-app.MapGet("/api/counterparties", [Authorize] async (HttpContext ctx, CashDb db, string? q, int? page, int? pageSize) =>
-{
-    if(q?.Length>160||q?.Contains('\0')==true)return Results.Problem("Некорректный поисковый запрос.",statusCode:400);
-    return await ListPage(ctx,db.Counterparties.AsNoTracking().Where(x=>q==null||x.Name.Contains(q)).OrderBy(x=>x.Name).ThenBy(x=>x.Id),page,pageSize,ctx.RequestAborted);
-});
 app.MapGet("/api/settlements", [Authorize(Roles = Admin + "," + Accountant + "," + Manager + "," + Auditor)] async (CashDb db, HttpContext ctx, ICashboxAccess access, long? counterpartyId, Guid? representativeId, string? direction, string? status, string? q, bool? overdueOnly, DateOnly? asOf, int? page, int? pageSize, CancellationToken ct) =>
 {
     var allowed=await access.AllowedCashboxes(ctx.UserId(),ct);
@@ -146,20 +136,6 @@ app.MapPost("/api/settlements/{id:long}/allocate", [Authorize(Roles = Admin + ",
     var alreadyAllocated=await db.PaymentAllocations.Where(a=>a.OperationId==x.OperationId).SumAsync(a=>(decimal?)a.Amount,ctx.RequestAborted)??0m;
     if(settlement.PaidAmount+x.Amount>settlement.TotalAmount||alreadyAllocated+x.Amount>operation.Amount)return Results.Problem("Сумма платежа превышает остаток задолженности или нераспределённую сумму операции.",statusCode:409);
     var allocation=new PaymentAllocation{SettlementId=id,OperationId=x.OperationId,Amount=x.Amount,CreatedBy=ctx.UserId()}; settlement.PaidAmount+=x.Amount; settlement.Status=settlement.PaidAmount==settlement.TotalAmount?"paid":"partially_paid"; db.PaymentAllocations.Add(allocation); await db.SaveChangesAsync(ctx.RequestAborted); await audit.Add(ctx.UserId(),"settlement_payment_allocated","settlement",id,new{allocation.OperationId,allocation.Amount,settlement.PaidAmount,settlement.Status}); await tx.CommitAsync(ctx.RequestAborted); return Results.Ok(new{settlement.Id,settlement.TotalAmount,settlement.PaidAmount,remaining=settlement.TotalAmount-settlement.PaidAmount,settlement.Status});
-});
-app.MapGet("/api/document-types", [Authorize] async (CashDb db) => Results.Ok(await db.DocumentTypes.OrderBy(x => x.Name).ToListAsync()));
-app.MapPost("/api/document-types", [Authorize(Roles = Admin + "," + Accountant)] async (DocumentTypeInput x, CashDb db) =>
-{
-    var code=x.Code?.Trim().ToUpperInvariant();var name=x.Name?.Trim();
-    if(string.IsNullOrEmpty(code)||code.Length>24||code.Contains('\0')||string.IsNullOrEmpty(name)||name.Length>160||name.Contains('\0'))
-        return Results.Problem("Укажите код длиной до 24 символов и название длиной до 160 символов.",statusCode:400);
-    db.DocumentTypes.Add(new(){Code=code,Name=name});
-    try { await db.SaveChangesAsync(); }
-    catch(DbUpdateException error) when(error.InnerException is PostgresException { SqlState:PostgresErrorCodes.UniqueViolation,ConstraintName:"IX_DocumentTypes_NormalizedCode" })
-    {
-        return Results.Problem("Код вида документа уже существует.",statusCode:409);
-    }
-    return Results.NoContent();
 });
 
 app.MapGet("/api/operations", [Authorize] async (HttpContext ctx,CashDb db,ICashboxAccess access,long? cashboxId, DateOnly? from, DateOnly? to, string? type, string? status, long? categoryId, long? counterpartyId, string? q, string? sort, int page = 1, int pageSize = 25) =>
