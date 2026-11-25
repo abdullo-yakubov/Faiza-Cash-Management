@@ -22,7 +22,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         return base.SaveChangesAsync(cancellationToken);
     }
     public DbSet<User> Users => Set<User>(); public DbSet<Role> Roles => Set<Role>(); public DbSet<UserRole> UserRoles => Set<UserRole>(); public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>(); public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>(); public DbSet<Currency> Currencies => Set<Currency>(); public DbSet<Cashbox> Cashboxes => Set<Cashbox>(); public DbSet<CashboxOpening> Openings => Set<CashboxOpening>(); public DbSet<Category> Categories => Set<Category>(); public DbSet<Counterparty> Counterparties => Set<Counterparty>(); public DbSet<DocumentType> DocumentTypes => Set<DocumentType>(); public DbSet<CashOperation> Operations => Set<CashOperation>(); public DbSet<DocumentSequence> Sequences => Set<DocumentSequence>(); public DbSet<CashShift> Shifts => Set<CashShift>(); public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>(); public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>();
+    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>(); public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>(); public DbSet<Attachment> Attachments => Set<Attachment>(); public DbSet<Advance> Advances => Set<Advance>(); public DbSet<AdvanceReportLine> AdvanceReportLines => Set<AdvanceReportLine>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<CashAccess>().HasKey(x=>new { x.UserId,x.CashboxId });
@@ -126,6 +126,35 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<CashTransfer>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.SourceOperationId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashTransfer>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.TargetOperationId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashTransfer>().ToTable(t=>t.HasCheckConstraint("CK_CashTransfers_Values","\"SourceCashboxId\" <> \"TargetCashboxId\" AND \"Amount\" > 0"));
+        b.Entity<Attachment>(e=>
+        {
+            e.HasKey(x=>x.Id);
+            e.Property(x=>x.OwnerType).HasMaxLength(16); e.Property(x=>x.FileName).HasMaxLength(200); e.Property(x=>x.ContentType).HasMaxLength(64); e.Property(x=>x.Sha256).HasMaxLength(64);
+            e.HasIndex(x=>new{x.OwnerType,x.OwnerId});
+            e.HasOne<Cashbox>().WithMany().HasForeignKey(x=>x.CashboxId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<User>().WithMany().HasForeignKey(x=>x.UploadedBy).OnDelete(DeleteBehavior.Restrict);
+            e.ToTable(t=>{t.HasCheckConstraint("CK_Attachments_Owner","\"OwnerType\" IN ('operation','receipt','advance') AND \"OwnerId\" > 0");t.HasCheckConstraint("CK_Attachments_File","\"SizeBytes\" > 0 AND \"SizeBytes\" <= 5242880 AND \"ContentType\" IN ('image/jpeg','image/png','image/webp','application/pdf') AND char_length(\"Sha256\") = 64");});
+        });
+        b.Entity<Advance>(e=>
+        {
+            e.Property(x=>x.Amount).HasPrecision(18,2); e.Property(x=>x.Spent).HasPrecision(18,2); e.Property(x=>x.Purpose).HasMaxLength(500); e.Property(x=>x.Status).HasMaxLength(16);
+            e.HasIndex(x=>x.OperationId).IsUnique();
+            e.HasIndex(x=>x.SettlementOperationId).IsUnique().HasFilter("\"SettlementOperationId\" IS NOT NULL");
+            e.HasIndex(x=>new{x.Status,x.DueDate});
+            e.HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.OperationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.SettlementOperationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Cashbox>().WithMany().HasForeignKey(x=>x.CashboxId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x=>x.Counterparty).WithMany().HasForeignKey(x=>x.CounterpartyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<User>().WithMany().HasForeignKey(x=>x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            e.HasMany(x=>x.Lines).WithOne().HasForeignKey(x=>x.AdvanceId).OnDelete(DeleteBehavior.Restrict);
+            e.ToTable(t=>{t.HasCheckConstraint("CK_Advances_Status","\"Status\" IN ('issued','reported','closed')");t.HasCheckConstraint("CK_Advances_Amounts","\"Amount\" > 0 AND (\"Spent\" IS NULL OR \"Spent\" >= 0)");t.HasCheckConstraint("CK_Advances_Purpose","char_length(btrim(\"Purpose\")) BETWEEN 1 AND 500");});
+        });
+        b.Entity<AdvanceReportLine>(e=>
+        {
+            e.Property(x=>x.Amount).HasPrecision(18,2); e.Property(x=>x.Description).HasMaxLength(500);
+            e.HasOne(x=>x.Category).WithMany().HasForeignKey(x=>x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+            e.ToTable(t=>t.HasCheckConstraint("CK_AdvanceReportLines_Amount","\"Amount\" > 0"));
+        });
         b.Entity<RepresentativeReceipt>().Property(x=>x.Amount).HasPrecision(18,2); b.Entity<RepresentativeReceipt>().HasIndex(x=>x.RequestKey).IsUnique(); b.Entity<RepresentativeReceipt>().HasOne(x=>x.Counterparty).WithMany().HasForeignKey(x=>x.CounterpartyId).OnDelete(DeleteBehavior.Restrict); b.Entity<RepresentativeReceipt>().ToTable(t=>{t.HasCheckConstraint("CK_RepresentativeReceipts_Amount","\"Amount\" > 0");t.HasCheckConstraint("CK_RepresentativeReceipts_Status","\"Status\" IN ('collected','handed_over','accepted','cancelled')");t.HasCheckConstraint("CK_RepresentativeReceipts_Basis","\"BasisType\" IN ('order','delivery','return','manual')");t.HasCheckConstraint("CK_RepresentativeReceipts_Reference","char_length(btrim(\"BasisReference\")) BETWEEN 1 AND 120");});
     }
 }

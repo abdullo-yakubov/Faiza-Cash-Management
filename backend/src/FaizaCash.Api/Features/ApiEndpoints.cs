@@ -28,6 +28,8 @@ public static class ApiEndpoints
         app.MapOperationsEndpoints();
         app.MapAnalyticsEndpoints();
         app.MapApprovalsEndpoints();
+        app.MapAttachmentsEndpoints();
+        app.MapAdvancesEndpoints();
         app.MapGet("/health", async (CashDb db) => await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok", utc = DateTime.UtcNow }) : Results.Problem("База данных недоступна.", statusCode: 503));
     }
 

@@ -4,8 +4,14 @@ using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using System.Globalization;
 namespace FaizaCash.Infrastructure;
-public sealed class PdfReport : IPdfReport
+/// <summary>PDF-отчёты QuestPDF. Логотип организации (если загружен) выводится в шапке всех документов.</summary>
+public sealed partial class PdfReport(IOrganizationLogo? logo = null) : IPdfReport
 {
+    private void Logo(ColumnDescriptor column)
+    {
+        if (logo?.Current is { Length: > 0 } image) column.Item().AlignLeft().Height(36).Image(image).FitHeight();
+    }
+
     public byte[] GenerateVoucher(string organization,string currency,bool income,bool posted,string number,DateOnly date,string cashbox,string cashboxCode,string category,string? counterparty,string description,decimal amount)
     {
         QuestPDF.Settings.License=LicenseType.Community;
@@ -17,6 +23,7 @@ public sealed class PdfReport : IPdfReport
             page.Size(PageSizes.A4);page.Margin(42);page.DefaultTextStyle(style=>style.FontSize(11));
             page.Header().Column(column=>
             {
+                Logo(column);
                 column.Item().AlignCenter().Text(organization).Bold().FontColor("#1C5743").FontSize(15);
                 column.Item().PaddingTop(20).AlignCenter().Text(title).Bold().FontSize(19);
                 column.Item().PaddingTop(8).AlignCenter().Text(posted?"ПРОВЕДЁН":"ЧЕРНОВИК").FontColor(posted?"#1C5743":"#8A5A00").Bold();
@@ -57,7 +64,7 @@ public sealed class PdfReport : IPdfReport
         return Document.Create(document=>document.Page(page=>
         {
             page.Size(balances?PageSizes.A4.Landscape():PageSizes.A4);page.Margin(28);page.DefaultTextStyle(s=>s.FontSize(9));
-            page.Header().Column(c=>{c.Item().Text("FAIZA CASH / "+organization).FontColor("#1C5743").Bold().FontSize(12);c.Item().PaddingTop(12).Text(title).FontSize(20).Bold();c.Item().PaddingTop(6).Text(subtitle).FontColor(Colors.Grey.Darken1);});
+            page.Header().Column(c=>{Logo(c);c.Item().Text("FAIZA CASH / "+organization).FontColor("#1C5743").Bold().FontSize(12);c.Item().PaddingTop(12).Text(title).FontSize(20).Bold();c.Item().PaddingTop(6).Text(subtitle).FontColor(Colors.Grey.Darken1);});
             page.Content().PaddingVertical(18).Column(c=>
             {
                 if(balances)c.Item().Text("Остаток на начало: "+Money(opening));

@@ -58,14 +58,16 @@ operations.MapPatch("/{id:long}", [Authorize(Roles = CashOperators)] async (long
     var approvalBefore = o.ApprovalStatus; o.ApprovalStatus = ApprovalRules.None; o.ApprovedBy = null; o.ApprovedAt = null; o.ApprovalComment = null;
     await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_updated", "operation", id, new { }); if (approvalBefore != ApprovalRules.None) await audit.Add(ctx.UserId(), "approval_reset", "operation", id, new { before = approvalBefore }); await tx.CommitAsync(); return Results.Ok(o.View());
 });
-operations.MapDelete("/{id:long}", [Authorize(Roles = CashOperators)] async (long id, int version, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
+operations.MapDelete("/{id:long}", [Authorize(Roles = CashOperators)] async (long id, int version, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access, FaizaCash.Infrastructure.Services.AttachmentStorage storage) =>
 {
     await using var tx=await db.Database.BeginTransactionAsync();
     var o = await db.Operations.FromSqlInterpolated($"SELECT * FROM \"Operations\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(); if (o is null) return Results.NotFound();
     await access.Require(ctx.UserId(),o.CashboxId,ctx.RequestAborted);
     if ((o.CreatedBy != ctx.UserId() && !ctx.User.IsInRole(Accountant)) || o.Status != "draft") return Results.Problem("Можно удалить только собственный черновик.", statusCode: 403);
     if (o.Version != version) return Results.Problem("Черновик изменён другим пользователем.", statusCode: 409);
-    db.Operations.Remove(o); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_deleted", "operation", id, new { }); await tx.CommitAsync(); return Results.NoContent();
+    // Вложения удаляемого черновика удаляются вместе с ним (метаданные — в транзакции, файлы — после фиксации).
+    var files = await db.Attachments.Where(a => a.OwnerType == "operation" && a.OwnerId == id).ToListAsync(); db.Attachments.RemoveRange(files);
+    db.Operations.Remove(o); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_deleted", "operation", id, new { attachments = files.Count }); await tx.CommitAsync(); foreach (var file in files) storage.Delete(file.Id); return Results.NoContent();
 });
 operations.MapPost("/{id:long}/post", [Authorize(Roles = CashOperators)] async (long id,PostingRequest request,HttpContext ctx,ILedgerService ledger)=>Results.Ok(await ledger.Post(id,request.ExpectedVersion,ctx.UserId(),ctx.User.IsInRole(Accountant),ctx.RequestAborted)));
 operations.MapPost("/{id:long}/reversals", [Authorize(Roles = Accountant)] async (long id, ReversalInput x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
