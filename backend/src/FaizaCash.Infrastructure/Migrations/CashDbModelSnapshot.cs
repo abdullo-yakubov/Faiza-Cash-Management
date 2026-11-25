@@ -293,6 +293,62 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.ToTable("CashAccess");
                 });
 
+            modelBuilder.Entity("FaizaCash.Domain.CashInventory", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("ActualBalance")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<long>("CashboxId")
+                        .HasColumnType("bigint");
+
+                    b.PrimitiveCollection<string[]>("Commission")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTime>("CountedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Denominations")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<decimal>("Difference")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("ExpectedBalance")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("CashboxId", "CountedAt");
+
+                    b.ToTable("CashInventories", t =>
+                        {
+                            t.HasCheckConstraint("CK_CashInventories_Values", "\"ExpectedBalance\" >= 0 AND \"ActualBalance\" >= 0 AND \"Difference\" = \"ActualBalance\" - \"ExpectedBalance\" AND cardinality(\"Commission\") BETWEEN 1 AND 10");
+                        });
+                });
+
             modelBuilder.Entity("FaizaCash.Domain.CashOperation", b =>
                 {
                     b.Property<long>("Id")
@@ -489,6 +545,9 @@ namespace FaizaCash.Infrastructure.Migrations
 
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
+
+                    b.Property<string>("Denominations")
+                        .HasColumnType("jsonb");
 
                     b.Property<DateTime>("OpenedAt")
                         .HasColumnType("timestamp with time zone");
@@ -751,6 +810,42 @@ namespace FaizaCash.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Currencies");
+                });
+
+            modelBuilder.Entity("FaizaCash.Domain.Denomination", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Currency", "Value", "Kind")
+                        .IsUnique();
+
+                    b.ToTable("Denominations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Denominations_Values", "\"Value\" > 0 AND \"Kind\" IN ('banknote','coin')");
+                        });
                 });
 
             modelBuilder.Entity("FaizaCash.Domain.DocumentSequence", b =>
@@ -1251,6 +1346,21 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.HasOne("FaizaCash.Domain.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FaizaCash.Domain.CashInventory", b =>
+                {
+                    b.HasOne("FaizaCash.Domain.Cashbox", null)
+                        .WithMany()
+                        .HasForeignKey("CashboxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FaizaCash.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

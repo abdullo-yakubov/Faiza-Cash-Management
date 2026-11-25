@@ -188,6 +188,48 @@ try {
     const pdf = await api.request('/reports/advances.pdf', {token: auditor.token});
     assert.equal(pdf.status, 200); assert.equal(pdf.headers.get('content-type'), 'application/pdf');
   });
+
+  // ---------- 4. Пересчёт по купюрам и инвентаризация ----------
+  await test('INV-01 denominations catalog is seeded from NBT data and editable by admin only', async () => {
+    const rows = await api.expect('/denominations?currency=TJS', {token: cashier.token});
+    assert.ok(rows.some(x => x.value === '500.00' && x.kind === 'banknote'));
+    assert.ok(rows.some(x => x.value === '0.05' && x.kind === 'coin'));
+    assert.ok(rows.some(x => x.value === '3.00' && x.kind === 'coin'));
+    await api.expect('/denominations', {method: 'PUT', token: accountant.token, body: {currency: 'TJS', items: [{value: '1.00', kind: 'coin'}]}}, 403);
+    await api.expect('/denominations', {method: 'PUT', body: {currency: 'TJS', items: [{value: '1.00', kind: 'coin'}, {value: '1.00', kind: 'coin'}]}}, 400);
+  });
+
+  await test('INV-02 shift close accepts an optional denomination count that must match the actual balance', async () => {
+    const shiftBox = await api.cashbox('W1S');
+    await api.expect(`/cashboxes/${shiftBox.id}/opening`, {method: 'POST', body: {date: today, amount: '700.30'}}, 201);
+    const shift = await api.expect('/shifts/open', {method: 'POST', body: {cashboxId: shiftBox.id, date: today, openingBalance: '700.30'}}, 201);
+    const counted = [{value: '500.00', count: 1}, {value: '100.00', count: 2}, {value: '0.10', count: 3}];
+    await api.expect(`/shifts/${shift.id}/close`, {method: 'POST', body: {closingBalance: '700.00', denominations: counted}}, 400);
+    await api.expect(`/shifts/${shift.id}/close`, {method: 'POST', body: {closingBalance: '700.30', denominations: [{value: '7.00', count: 1}]}}, 400);
+    const closed = await api.expect(`/shifts/${shift.id}/close`, {method: 'POST', body: {closingBalance: '700.30', denominations: counted}}, 200);
+    assert.equal(closed.closingDifference, '0.00');
+    assert.equal(closed.denominations.length, 3);
+    assert.equal(closed.denominations.find(x => x.value === '500.00').kind, 'banknote');
+  });
+
+  await test('INV-03 inventory act computes the difference, is append-only and prints a PDF', async () => {
+    await api.expect('/cash-inventories', {method: 'POST', token: cashier.token, body: {cashboxId: box.id, denominations: [{value: '1.00', count: 1}], commission: ['Иванов И.И.']}}, 403);
+    await api.expect('/cash-inventories', {method: 'POST', token: pureAdmin.token, body: {cashboxId: box.id, denominations: [{value: '1.00', count: 1}], commission: ['Иванов И.И.']}}, 403);
+    await api.expect('/cash-inventories', {method: 'POST', token: manager.token, body: {cashboxId: box.id, denominations: [{value: '1.00', count: 1}], commission: []}}, 400);
+    const expected = (await api.expect(`/cashboxes/${box.id}/balance`)).balance;
+    const act = await api.expect('/cash-inventories', {method: 'POST', token: manager.token, body: {cashboxId: box.id, denominations: [{value: '200.00', count: 3}, {value: '0.05', kind: 'coin', count: 7}], commission: ['Каримов А.', 'Саидова М.'], note: 'Плановая проверка'}}, 201);
+    assert.equal(act.actualBalance, '600.35'); assert.equal(act.expectedBalance, expected);
+    assert.equal(act.difference, (Math.round((600.35 - Number(expected)) * 100) / 100).toFixed(2));
+    assert.ok(['shortage', 'surplus', 'match'].includes(act.result));
+    const listed = await api.expect(`/cash-inventories?cashboxId=${box.id}`, {token: auditor.token});
+    assert.ok(listed.items.some(x => x.id === act.id));
+    assert.deepEqual((await api.expect(`/cash-inventories/${act.id}`, {token: cashier.token})).commission, ['Каримов А.', 'Саидова М.']);
+    const pdf = await api.request(`/cash-inventories/${act.id}/act.pdf`, {token: accountant.token});
+    assert.equal(pdf.status, 200); assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    const update = api.sql(`UPDATE "CashInventories" SET "Note"='x' WHERE "Id"=${act.id}`, false);
+    assert.notEqual(update.status, 0); assert.match(update.stderr, /append-only/);
+    assert.notEqual(api.sql(`DELETE FROM "CashInventories" WHERE "Id"=${act.id}`, false).status, 0);
+  });
 } catch (error) {
   console.error(error.stack || error.message); process.exitCode = 1;
 } finally {

@@ -45,16 +45,23 @@ shifts.MapPost("/open", [Authorize(Roles = CashOperators)] async (ShiftOpenInput
 });
 shifts.MapPost("/{id:long}/close", [Authorize(Roles = CashOperators)] async (long id, ShiftCloseInput x, HttpContext ctx, CashDb db, ICashboxAccess access, IBalanceService balances, Audit audit) =>
 {
-    if(x.ClosingBalance<0||decimal.Round(x.ClosingBalance,2)!=x.ClosingBalance)return Results.Problem("Фактический остаток должен быть неотрицательным, с точностью до дирама.",statusCode:400);
+    if(ShiftsValidators.Close(x) is {} invalid)return invalid;
     await using var tx=await db.Database.BeginTransactionAsync(ctx.RequestAborted);
     var shift=await db.Shifts.FromSqlInterpolated($"SELECT * FROM \"Shifts\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(ctx.RequestAborted);
     if(shift is null) return Results.NotFound();
     await access.Require(ctx.UserId(),shift.CashboxId,ctx.RequestAborted);
     if(!ShiftRules.CanClose(shift.Status,shift.OpeningBalance,x.ClosingBalance)) return Results.Problem("Смена уже закрыта.",statusCode:409);
+    if(x.Denominations is not null)
+    {
+        // Пересчёт по купюрам необязателен; если передан — сумма обязана совпасть с фактическим остатком.
+        var (counted,error)=await ShiftsValidators.Denominations(db,shift.CashboxId,x.Denominations,x.ClosingBalance,ctx.RequestAborted);
+        if(error is not null)return error;
+        shift.Denominations=counted;
+    }
     var expected=await balances.BalanceAt(shift.CashboxId,shift.Date,ctx.RequestAborted);
     shift.ClosingBalance=x.ClosingBalance; shift.ClosingDifference=ShiftRules.ClosingDifference(expected,x.ClosingBalance); shift.Status="closed"; shift.ClosedBy=ctx.UserId(); shift.ClosedAt=DateTime.UtcNow;
     await db.SaveChangesAsync(ctx.RequestAborted);
-    await audit.Add(ctx.UserId(),"shift_closed","shift",shift.Id,new{shift.CashboxId,shift.Date,expected,shift.ClosingBalance,shift.ClosingDifference});
+    await audit.Add(ctx.UserId(),"shift_closed","shift",shift.Id,new{shift.CashboxId,shift.Date,expected,shift.ClosingBalance,shift.ClosingDifference,denominations=shift.Denominations?.Count});
     await tx.CommitAsync(ctx.RequestAborted); return Results.Ok(shift);
 });
         return app;

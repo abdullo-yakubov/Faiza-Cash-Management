@@ -22,7 +22,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         return base.SaveChangesAsync(cancellationToken);
     }
     public DbSet<User> Users => Set<User>(); public DbSet<Role> Roles => Set<Role>(); public DbSet<UserRole> UserRoles => Set<UserRole>(); public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>(); public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>(); public DbSet<Currency> Currencies => Set<Currency>(); public DbSet<Cashbox> Cashboxes => Set<Cashbox>(); public DbSet<CashboxOpening> Openings => Set<CashboxOpening>(); public DbSet<Category> Categories => Set<Category>(); public DbSet<Counterparty> Counterparties => Set<Counterparty>(); public DbSet<DocumentType> DocumentTypes => Set<DocumentType>(); public DbSet<CashOperation> Operations => Set<CashOperation>(); public DbSet<DocumentSequence> Sequences => Set<DocumentSequence>(); public DbSet<CashShift> Shifts => Set<CashShift>(); public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>(); public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>(); public DbSet<Attachment> Attachments => Set<Attachment>(); public DbSet<Advance> Advances => Set<Advance>(); public DbSet<AdvanceReportLine> AdvanceReportLines => Set<AdvanceReportLine>();
+    public DbSet<CashAccess> CashAccess => Set<CashAccess>(); public DbSet<Organization> Organizations => Set<Organization>(); public DbSet<Branch> Branches => Set<Branch>(); public DbSet<CashTransfer> Transfers => Set<CashTransfer>(); public DbSet<Settlement> Settlements => Set<Settlement>(); public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>(); public DbSet<RepresentativeReceipt> RepresentativeReceipts => Set<RepresentativeReceipt>(); public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>(); public DbSet<Attachment> Attachments => Set<Attachment>(); public DbSet<Advance> Advances => Set<Advance>(); public DbSet<Denomination> Denominations => Set<Denomination>(); public DbSet<CashInventory> CashInventories => Set<CashInventory>(); public DbSet<AdvanceReportLine> AdvanceReportLines => Set<AdvanceReportLine>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<CashAccess>().HasKey(x=>new { x.UserId,x.CashboxId });
@@ -154,6 +154,34 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
             e.Property(x=>x.Amount).HasPrecision(18,2); e.Property(x=>x.Description).HasMaxLength(500);
             e.HasOne(x=>x.Category).WithMany().HasForeignKey(x=>x.CategoryId).OnDelete(DeleteBehavior.Restrict);
             e.ToTable(t=>t.HasCheckConstraint("CK_AdvanceReportLines_Amount","\"Amount\" > 0"));
+        });
+        var countsComparer = new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<DenominationCount>?>(
+            (a, c) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(c, (JsonSerializerOptions?)null),
+            v => v == null ? 0 : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+            v => v == null ? null : v.ToList());
+        b.Entity<CashShift>().Property(x=>x.Denominations).HasColumnType("jsonb").HasConversion(
+            v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+            v => v == null ? null : JsonSerializer.Deserialize<List<DenominationCount>>(v, (JsonSerializerOptions?)null), countsComparer);
+        b.Entity<Denomination>(e=>
+        {
+            e.Property(x=>x.Currency).HasMaxLength(3); e.Property(x=>x.Kind).HasMaxLength(16); e.Property(x=>x.Value).HasPrecision(18,2);
+            e.HasIndex(x=>new{x.Currency,x.Value,x.Kind}).IsUnique();
+            e.ToTable(t=>t.HasCheckConstraint("CK_Denominations_Values","\"Value\" > 0 AND \"Kind\" IN ('banknote','coin')"));
+        });
+        b.Entity<CashInventory>(e=>
+        {
+            e.Property(x=>x.ExpectedBalance).HasPrecision(18,2); e.Property(x=>x.ActualBalance).HasPrecision(18,2); e.Property(x=>x.Difference).HasPrecision(18,2);
+            e.Property(x=>x.Note).HasMaxLength(1000);
+            e.Property(x=>x.Denominations).HasColumnType("jsonb").HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<DenominationCount>>(v, (JsonSerializerOptions?)null) ?? new List<DenominationCount>(),
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<DenominationCount>>(
+                    (a, c) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(c, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(), v => v.ToList()));
+            e.HasIndex(x=>new{x.CashboxId,x.CountedAt});
+            e.HasOne<Cashbox>().WithMany().HasForeignKey(x=>x.CashboxId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<User>().WithMany().HasForeignKey(x=>x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            e.ToTable(t=>t.HasCheckConstraint("CK_CashInventories_Values","\"ExpectedBalance\" >= 0 AND \"ActualBalance\" >= 0 AND \"Difference\" = \"ActualBalance\" - \"ExpectedBalance\" AND cardinality(\"Commission\") BETWEEN 1 AND 10"));
         });
         b.Entity<RepresentativeReceipt>().Property(x=>x.Amount).HasPrecision(18,2); b.Entity<RepresentativeReceipt>().HasIndex(x=>x.RequestKey).IsUnique(); b.Entity<RepresentativeReceipt>().HasOne(x=>x.Counterparty).WithMany().HasForeignKey(x=>x.CounterpartyId).OnDelete(DeleteBehavior.Restrict); b.Entity<RepresentativeReceipt>().ToTable(t=>{t.HasCheckConstraint("CK_RepresentativeReceipts_Amount","\"Amount\" > 0");t.HasCheckConstraint("CK_RepresentativeReceipts_Status","\"Status\" IN ('collected','handed_over','accepted','cancelled')");t.HasCheckConstraint("CK_RepresentativeReceipts_Basis","\"BasisType\" IN ('order','delivery','return','manual')");t.HasCheckConstraint("CK_RepresentativeReceipts_Reference","char_length(btrim(\"BasisReference\")) BETWEEN 1 AND 120");});
     }

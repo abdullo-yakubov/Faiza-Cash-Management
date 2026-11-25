@@ -7,4 +7,4 @@ public record SettlementInput(long CounterpartyId, long CashboxId, string? Direc
 public record CashboxOpeningInput(DateOnly Date, decimal Amount);
 public record CancelInput(string? Reason);
 public record ApprovalInput(string? Comment);
-public record ShiftOpenInput(long CashboxId, DateOnly Date, decimal OpeningBalance); public record ShiftCloseInput(decimal ClosingBalance);
+public record ShiftOpenInput(long CashboxId, DateOnly Date, decimal OpeningBalance); public record ShiftCloseInput(decimal ClosingBalance, List<FaizaCash.Domain.DenominationCount>? Denominations = null);
