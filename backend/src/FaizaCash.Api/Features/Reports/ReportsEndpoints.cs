@@ -44,7 +44,7 @@ public static class ReportEndpoints
     private static string Money2(decimal value)=>value.ToString("0.00",CultureInfo.InvariantCulture);
     private const string SettlementRoles="admin,accountant,manager,auditor";
 
-    public static void MapReports(this WebApplication app)
+    public static IEndpointRouteBuilder MapReportsEndpoints(this IEndpointRouteBuilder app)
     {
         var group=app.MapGroup("/api/reports").RequireAuthorization();
 
@@ -290,6 +290,7 @@ public static class ReportEndpoints
             await tx.CommitAsync(ctx.RequestAborted);
             return Results.File(bytes,"application/pdf","Faiza-Cash.pdf");
         });
+        return app;
     }
 
     private static IResult CsvFile(StringBuilder csv,string name)=>Results.File(new UTF8Encoding(true).GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray(),"text/csv; charset=utf-8",name);

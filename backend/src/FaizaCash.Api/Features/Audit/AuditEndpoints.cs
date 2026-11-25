@@ -31,7 +31,7 @@ public static class AuditEndpoints
         ["cash_transfer"]="Межкассовый перевод",["representative_receipt"]="Квитанция представителя",["branch_report"]="Отчёт по филиалу",["transfer_report"]="Отчёт по переводам",["settlement_report"]="Отчёт по задолженностям",
         ["shift_report"]="Отчёт по сменам",["representative_report"]="Отчёт по представителям",["notification"]="Уведомление"
     };
-    public static void MapAudit(this WebApplication app)
+    public static IEndpointRouteBuilder MapAuditEndpoints(this IEndpointRouteBuilder app)
     {
         var group=app.MapGroup("/api/audit").RequireAuthorization(p=>p.RequireRole("admin","accountant","manager","auditor"));
         group.MapGet("/options",async(CashDb db)=>Results.Ok(new {
@@ -61,6 +61,7 @@ public static class AuditEndpoints
                 return new {e.Id,e.UserId,e.Action,e.Entity,e.EntityId,e.CreatedAt,details,userName,actionName,entityName,description,isTechnical=e.Action.StartsWith("data_")};
             })});
         });
+        return app;
     }
     /// <summary>
     /// A value without offset (for example ?from=2026-11-17) is an Asia/Dushanbe business time; a bare `to` date covers the whole day.

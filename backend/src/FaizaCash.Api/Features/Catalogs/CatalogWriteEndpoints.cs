@@ -12,7 +12,7 @@ public static class DirectoryEndpoints
         return Regex.Replace(value.Trim(),@"\s+"," ");
     }
     private static Task Lock(CashDb db,string key)=>db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key},0))");
-    public static void MapDirectories(this WebApplication app)
+    public static IEndpointRouteBuilder MapCatalogWriteEndpoints(this IEndpointRouteBuilder app)
     {
         var auth=new[]{"admin","accountant"};
         app.MapPost("/api/categories",async(CategoryInput x,CashDb db)=>
@@ -43,5 +43,6 @@ public static class DirectoryEndpoints
             if(x.Name!=null){var name=Name(x.Name);await Lock(db,"counterparty:"+name.ToUpperInvariant());if((await db.Counterparties.Where(c=>c.Id!=id).Select(c=>c.Name).ToListAsync()).Any(n=>string.Equals(Name(n),name,StringComparison.OrdinalIgnoreCase)))throw new BusinessException("Контрагент с таким названием уже существует.");row.Name=name;}
             if(x.Active.HasValue)row.Active=x.Active.Value;await db.SaveChangesAsync();await tx.CommitAsync();return Results.NoContent();
         }).RequireAuthorization(p=>p.RequireRole(auth));
+        return app;
     }
 }
