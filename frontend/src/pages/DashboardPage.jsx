@@ -2,6 +2,9 @@ import React,{useEffect,useState} from 'react';
 import {ResponsiveContainer,BarChart,Bar,LineChart,Line,XAxis,YAxis,Tooltip,CartesianGrid,Legend} from 'recharts';
 import {routeHash} from '../utils/route.js';
 import {api} from '../services/api.js';
+import {ManagerOverview} from '../components/ManagerOverview.jsx';
+import {SkeletonBlock, ErrorState} from '../components/ui';
+import {listTotal} from '../services/endpoints.js';
 
 const money=(value,c='TJS')=>{
   const raw=String(value??0),negative=raw.startsWith('-'),[whole='0',fraction='']=raw.replace(/^-/, '').split('.');
@@ -26,7 +29,7 @@ const presets={
   month30:()=>({from:iso(Date.now()-29*86400000),to:iso(Date.now())}),
   month:()=>({from:iso(Date.now()).slice(0,8)+'01',to:iso(Date.now())})
 };
-function Loading(){return <div className="v5-skeleton" role="status" aria-label="Загрузка"><i/><i/><i/></div>}
+function Loading(){return <SkeletonBlock tiles={7} rows={3}/>}
 // FG7-007: severity is conveyed by text and colour together; colours come from tokens.css.
 const severityLabel={danger:'Критично',warning:'Внимание',info:'Сведения'};
 const debtStatusLabel={open:'Открыта',partially_paid:'Частично оплачена',paid:'Оплачена'};
@@ -37,7 +40,13 @@ export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],
   const [f,setF]=useState({from:presets.month30().from,to:presets.month30().to,branchId:'',cashboxId:'',categoryId:'',counterpartyId:''});
   const query=new URLSearchParams(Object.entries(f).filter(([,value])=>value)).toString();
   const current=result?.query===query?result:null;
-  const d=current?.data??{};
+  const raw=current?.data??{};
+  // Пункты волны 1 в «Требует внимания»: переход в отфильтрованный список одним кликом.
+  const d={...raw,attention:[
+    ...(raw.pendingApprovals?[{code:'pending_approvals',severity:'warning',title:'Расходы ждут согласования',message:'Документов в очереди: '+raw.pendingApprovals+'. Без согласования их нельзя провести.',href:'#/approvals'}]:[]),
+    ...(raw.overdueAdvances?[{code:'overdue_advances',severity:'danger',title:'Просроченные авансы',message:'Подотчётных лиц с просроченным отчётом: '+raw.overdueAdvances+'.',href:'#/advances?filter=overdue'}]:[]),
+    ...(raw.attention||[])]};
+  const [attempt,setAttempt]=useState(0);
   useEffect(()=>{
     const preference=window.matchMedia?.('(prefers-reduced-motion: reduce)');
     if(!preference)return;
@@ -45,13 +54,23 @@ export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],
     preference.addEventListener?.('change',update);
     return()=>preference.removeEventListener?.('change',update);
   },[]);
+  const [drafts,setDrafts]=useState(null);
+  // Черновиков нет в ответе /dashboard: суммируем total по доступным кассам (запрос pageSize=1).
+  useEffect(()=>{
+    const controller=new AbortController();
+    const targets=boxes.filter(b=>(!f.cashboxId||String(b.id)===f.cashboxId)&&(!f.branchId||String(b.branchId)===f.branchId));
+    if(!targets.length){setDrafts(0);return;}
+    Promise.all(targets.map(b=>api('/operations?'+new URLSearchParams({cashboxId:b.id,from:f.from,to:f.to,status:'draft',page:1,pageSize:1}),{signal:controller.signal}).then(listTotal)))
+      .then(values=>{if(!controller.signal.aborted)setDrafts(values.reduce((a,b)=>a+b,0));}).catch(()=>{if(!controller.signal.aborted)setDrafts(null);});
+    return()=>controller.abort();
+  },[boxes,f.cashboxId,f.branchId,f.from,f.to]);
   useEffect(()=>{
     const controller=new AbortController();
     api('/dashboard?'+query,{signal:controller.signal})
       .then(data=>{if(!controller.signal.aborted)setResult({query,data});})
       .catch(error=>{if(!controller.signal.aborted)setResult({query,error:error.message});});
     return()=>controller.abort();
-  },[query]);
+  },[query,attempt]);
   const series=(d.cashflow||[]).map(x=>({...x,income:Number(x.income),expense:Number(x.expense),net:Number(x.net)}));
   const balanceSeries=(d.balanceTrend||[]).map(x=>({...x,balance:Number(x.balance)}));
   const periods=[
@@ -84,9 +103,11 @@ export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],
       <select aria-label="Контрагент" value={f.counterpartyId} onChange={e=>setF({...f,counterpartyId:e.target.value})}><option value="">Все контрагенты</option>{parties.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
       </details>
     </div>
-    {current?.error?<div className="error" role="alert">{current.error}</div>:!current?<Loading/>:<>
+    {current?.error?<section className="panel"><ErrorState error={current.error} onRetry={()=>{setResult(null);setAttempt(v=>v+1);}}/></section>:!current?<Loading/>:<>
+    <ManagerOverview d={d} currency={currency} draftCount={drafts} reduceMotion={reduceMotion}/>
     <p className="muted">Остаток на {d.period?.to||f.to}</p>
     <p className="muted">Приход и расход не включают межкассовые переводы. Переводы показаны отдельным показателем. Суммы одной валюты учёта.</p>
+    <h2 className="section-title">Показатели выбранного периода</h2>
     <div className="v5-kpis dashboard-metrics">{kpis.map(([label,value,kind])=>{
       const overdue = label==='Просроченный долг' && exceeds(value,0);
       return <div className={overdue?'stat metric-overdue':'stat'} key={label}>
@@ -105,10 +126,10 @@ export function DashboardPage({onDocument,currency='TJS',boxes=[],categories=[],
     </section>
     <section className="panel"><div className="panel-heading"><h2>Приход и расход за периоды</h2></div><div className="v5-kpis">{periods.map(([label,income,expense])=><div className="stat" key={label}><span className="stat-label">{label}</span><strong className="stat-value">+ {money(d.periodTotals?.[income],currency)}</strong><span className="stat-label">− {money(d.periodTotals?.[expense],currency)}</span></div>)}</div></section>
     <div className="chart-grid">
-      <section className="panel chart-panel"><div className="panel-heading"><div><h2>Приход, расход и поток</h2><p>Внешний оборот без межкассовых переводов</p></div></div><div className="chart">{series.length?<ResponsiveContainer width="100%" height="100%"><BarChart data={series}><CartesianGrid vertical={false} stroke="var(--border)"/><XAxis dataKey="date" tick={{fontSize:11,fill:'var(--muted)'}}/><YAxis tick={{fontSize:11,fill:'var(--muted)'}}/><Tooltip contentStyle={{background:'var(--panel)',borderColor:'var(--border)'}}/><Legend/><Bar dataKey="income" name="Приход" fill="#168568" isAnimationActive={!reduceMotion}/><Bar dataKey="expense" name="Расход" fill="#b07837" isAnimationActive={!reduceMotion}/><Bar dataKey="net" name="Поток" fill="#3d6f8f" isAnimationActive={!reduceMotion}/></BarChart></ResponsiveContainer>:<p className="empty">Нет внешнего оборота за период.</p>}</div></section>
+      <section className="panel chart-panel"><div className="panel-heading"><div><h2>Приход, расход и поток</h2><p>Внешний оборот без межкассовых переводов</p></div></div><div className="chart">{series.length?<ResponsiveContainer width="100%" height="100%"><BarChart data={series}><CartesianGrid vertical={false} stroke="var(--border)"/><XAxis dataKey="date" tick={{fontSize:11,fill:'var(--muted)'}}/><YAxis tick={{fontSize:11,fill:'var(--muted)'}}/><Tooltip contentStyle={{background:'var(--panel)',borderColor:'var(--border)'}}/><Legend/><Bar dataKey="income" name="Приход" fill="var(--chart-income)" isAnimationActive={!reduceMotion}/><Bar dataKey="expense" name="Расход" fill="var(--chart-expense)" isAnimationActive={!reduceMotion}/><Bar dataKey="net" name="Поток" fill="var(--chart-neutral)" isAnimationActive={!reduceMotion}/></BarChart></ResponsiveContainer>:<p className="empty">Нет внешнего оборота за период.</p>}</div></section>
       <section className="panel"><div className="panel-heading"><h2>Расход по категориям</h2></div><div className="category-distribution">{(d.categories||[]).filter(x=>x.type==='expense').map(x=><div className="category-line" key={x.name}><div><span>{x.name}</span><strong>{money(x.amount,currency)}</strong></div></div>)}{!(d.categories||[]).some(x=>x.type==='expense')&&<p className="muted">Нет расходов.</p>}</div></section>
     </div>
-    <section className="panel chart-panel"><div className="panel-heading"><div><h2>Динамика денежного остатка</h2><p>По выбранным доступным кассам, с учётом переводов</p></div></div><div className="chart">{balanceSeries.length?<ResponsiveContainer width="100%" height="100%"><LineChart data={balanceSeries}><CartesianGrid vertical={false} stroke="var(--border)"/><XAxis dataKey="date" tick={{fontSize:11,fill:'var(--muted)'}}/><YAxis tick={{fontSize:11,fill:'var(--muted)'}}/><Tooltip contentStyle={{background:'var(--panel)',borderColor:'var(--border)'}} formatter={value=>money(value,currency)}/><Line type="monotone" dataKey="balance" name="Остаток" stroke="#168568" strokeWidth={2} dot={false} isAnimationActive={!reduceMotion}/></LineChart></ResponsiveContainer>:<p className="empty">Нет данных за период.</p>}</div></section>
+    <section className="panel chart-panel"><div className="panel-heading"><div><h2>Динамика денежного остатка</h2><p>По выбранным доступным кассам, с учётом переводов</p></div></div><div className="chart">{balanceSeries.length?<ResponsiveContainer width="100%" height="100%"><LineChart data={balanceSeries}><CartesianGrid vertical={false} stroke="var(--border)"/><XAxis dataKey="date" tick={{fontSize:11,fill:'var(--muted)'}}/><YAxis tick={{fontSize:11,fill:'var(--muted)'}}/><Tooltip contentStyle={{background:'var(--panel)',borderColor:'var(--border)'}} formatter={value=>money(value,currency)}/><Line type="monotone" dataKey="balance" name="Остаток" stroke="var(--chart-neutral)" strokeWidth={2} dot={false} isAnimationActive={!reduceMotion}/></LineChart></ResponsiveContainer>:<p className="empty">Нет данных за период.</p>}</div></section>
     <h3>Сравнение касс и филиалов</h3>
     <div className="v5-cards">{(d.balances||[]).map(x=><article className="v5-card" key={x.id}><small>{x.branch}</small><h3>{x.name}</h3><strong>{money(x.balance,currency)}</strong>{x.limit!=null&&exceeds(x.balance,x.limit)&&<span className="badge draft">Лимит превышен</span>}</article>)}</div>
     <div className="v5-two"><div className="v5-note"><h3>Филиалы</h3>{(d.branches||[]).map(x=><div className="v5-history" key={x.id}>{x.name} · {money(x.balance,currency)}</div>)}</div>{d.canViewDebts&&<div className="v5-note"><h3>Задолженности</h3>{(d.debtStatuses||[]).map(x=><div className="v5-history" key={x.status}>{debtStatusLabel[x.status]||x.status} · {x.count} · {money(x.total,currency)}</div>)}{(d.debts||[]).map(x=><div className="v5-history" key={x.direction}>{x.direction==='receivable'?'К получению':'К оплате'} · {money(x.total,currency)}</div>)}</div>}</div>

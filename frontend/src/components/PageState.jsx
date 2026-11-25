@@ -1,6 +1,15 @@
 import React from 'react';
-export function PageState({state,onRetry,onLogin,children}) {
-  if(state.status==='loading')return <section className="panel page-state" role="status" aria-live="polite"><span className="loader"/><h2>Загрузка данных…</h2><p>Финансовые показатели появятся после ответа сервера.</p></section>;
-  if(state.status==='error'){const code=state.error?.status;return <section className="panel page-state" role="alert"><h2>{code===403?'Недостаточно прав':code===401?'Сеанс завершён':'Не удалось загрузить данные'}</h2><p>{state.error.message}</p><button className="button primary" onClick={code===401?onLogin:onRetry}>{code===401?'Войти повторно':'Повторить загрузку'}</button></section>;}
+import {LockKeyhole, LogIn} from 'lucide-react';
+import {SkeletonBlock, ErrorState, EmptyState, Button} from './ui';
+
+// Три состояния страницы: загрузка (скелетоны), ошибка (текст + «Повторить»), данные.
+export function PageState({state, onRetry, onLogin, children}) {
+  if (state.status === 'loading') return <SkeletonBlock tiles={3} rows={4} label="Загрузка данных…"/>;
+  if (state.status === 'error') {
+    const code = state.error?.status;
+    if (code === 403) return <section className="panel"><EmptyState icon={LockKeyhole} title="Недостаточно прав" text={state.error.message}/></section>;
+    if (code === 401) return <section className="panel"><EmptyState icon={LogIn} title="Сеанс завершён" text={state.error.message} action={<Button icon={LogIn} onClick={onLogin}>Войти повторно</Button>}/></section>;
+    return <section className="panel"><ErrorState error={state.error} onRetry={onRetry}/></section>;
+  }
   return children;
 }

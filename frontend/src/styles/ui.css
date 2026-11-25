@@ -215,3 +215,24 @@ tr.row-danger td:first-child { box-shadow: inset 3px 0 0 var(--status-danger-bor
   .ui-tiles { grid-template-columns: 1fr; }
   .cashier-actions { grid-template-columns: 1fr; }
 }
+
+/* --- Роли в форме пользователя --- */
+.roles-field .role-option { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-2) 0; }
+.roles-field .role-option input { margin-top: 4px; }
+.roles-field .role-option span { display: grid; gap: 2px; }
+.roles-field .role-option small { color: var(--muted); font-size: var(--text-xs); line-height: 1.45; }
+.quick-periods button.active, .quick-periods button[aria-selected="true"] { background: var(--accent-soft); color: var(--text); font-weight: var(--weight-bold); box-shadow: inset 0 -2px 0 var(--accent); }
+.chart-tooltip { background: var(--panel-raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-2); padding: var(--space-3); font-size: var(--text-sm); display: grid; gap: var(--space-1); font-variant-numeric: tabular-nums; }
+.chart-tooltip div { display: flex; align-items: center; gap: var(--space-2); }
+.chart-tooltip i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart-tooltip b { margin-left: auto; padding-left: var(--space-4); }
+.manager-kpis { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.section-title { font-size: var(--text-lg); margin: var(--space-6) 0 var(--space-3); }
+.login-org-logo { margin: 0 auto var(--space-4); max-height: 56px; }
+.cmdk-trigger { min-height: 38px; gap: var(--space-2); color: var(--muted); }
+.cmdk-trigger kbd { margin-left: var(--space-2); }
+@media (max-width: 900px) { .cmdk-trigger span, .cmdk-trigger kbd { display: none; } }
+.profile-link { display: inline-flex; border-radius: 50%; }
+.text-danger { color: var(--status-danger-fg); font-weight: var(--weight-medium); }
+.advance-line { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); }
+.advance-line legend { font-size: var(--text-xs); color: var(--muted); padding: 0 var(--space-1); }

@@ -1,6 +1,6 @@
 import {monthStart, today} from './format.js';
-export const pages = ['overview','dashboard','operations','shifts','transfers','debts','branches','representatives','cashboxes','counterparties','categories','reports','audit','users','backups','settings'];
-export const routeDefaults = () => ({page:'overview',box:'',from:monthStart(),to:today(),q:'',type:'',status:'',categoryId:'',counterpartyId:'',sort:'date_desc',index:1,action:'',entity:'',userId:'',technical:'false'});
+export const pages = ['overview','dashboard','cashier','approvals','advances','inventory','operations','shifts','transfers','debts','branches','representatives','cashboxes','counterparties','categories','reports','audit','users','backups','settings','admin','exchange-rates'];
+export const routeDefaults = () => ({page:'overview',box:'',from:monthStart(),to:today(),q:'',type:'',status:'',categoryId:'',counterpartyId:'',sort:'date_desc',index:1,action:'',entity:'',userId:'',technical:'false',filter:''});
 const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') && !Number.isNaN(Date.parse(value+'T00:00:00Z')) && new Date(value+'T00:00:00Z').toISOString().slice(0,10) === value;
 export function readRoute(hash = '') {
   const [path, query] = hash.replace(/^#\/?/, '').split('?');
@@ -16,6 +16,7 @@ export function readRoute(hash = '') {
   if (!['date_desc','date_asc','amount_desc','amount_asc'].includes(route.sort)) route.sort='date_desc';
   for (const key of ['box','categoryId','counterpartyId']) if (!/^\d*$/.test(route[key])) route[key]='';
   route.q=route.q.slice(0,200);
+  if(!/^[a-z_]{0,20}$/.test(route.filter))route.filter='';
   route.technical=route.technical==='true'?'true':'false';
   return route;
 }
