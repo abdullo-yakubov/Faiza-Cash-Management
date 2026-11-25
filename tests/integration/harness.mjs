@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
+import {grantFinanceRole} from './finance-role.mjs';
 
 export const psqlPath = 'C:/Program Files/PostgreSQL/18/bin/psql.exe';
 export const dll = 'backend/src/FaizaCash.Api/bin/Debug/net10.0/FaizaCash.Api.dll';
@@ -109,6 +110,7 @@ export async function startApi({port, name, env = {}}) {
   adminToken = login.accessToken;
   const adminPassword = crypto.randomBytes(18).toString('hex') + 'Aa1';
   await expect('/auth/change-password', {method: 'POST', body: {oldPassword: initialPassword, newPassword: adminPassword}}, 204);
+  adminToken = (await grantFinanceRole(base, adminToken, adminLogin, adminPassword)).token;
   const currencies = await expect('/currencies');
   const suffix = crypto.randomUUID().slice(0, 6).toUpperCase();
 

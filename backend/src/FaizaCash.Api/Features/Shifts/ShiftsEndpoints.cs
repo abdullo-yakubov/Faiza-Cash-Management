@@ -25,7 +25,7 @@ shifts.MapGet("", [Authorize] async (long cashboxId, DateOnly? date, HttpContext
     if(date.HasValue) query=query.Where(x=>x.Date==date.Value);
     return Results.Ok(await query.OrderByDescending(x=>x.Date).Take(30).ToListAsync(ctx.RequestAborted));
 });
-shifts.MapPost("/open", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (ShiftOpenInput x, HttpContext ctx, CashDb db, ICashboxAccess access, IBalanceService balances, Audit audit) =>
+shifts.MapPost("/open", [Authorize(Roles = CashOperators)] async (ShiftOpenInput x, HttpContext ctx, CashDb db, ICashboxAccess access, IBalanceService balances, Audit audit) =>
 {
     await access.Require(ctx.UserId(),x.CashboxId,ctx.RequestAborted);
     if(x.OpeningBalance<0 || x.Date==DateOnly.MinValue || x.Date>Local.Today || decimal.Round(x.OpeningBalance,2)!=x.OpeningBalance) return Results.Problem("Укажите неотрицательный остаток и дату не позже сегодняшней.",statusCode:400);
@@ -43,7 +43,7 @@ shifts.MapPost("/open", [Authorize(Roles = Admin + "," + Accountant + ",cashier"
     await audit.Add(ctx.UserId(),"shift_opened","shift",shift.Id,new{shift.CashboxId,shift.Date,shift.OpeningBalance});
     await tx.CommitAsync(ctx.RequestAborted); return Results.Created($"/api/shifts/{shift.Id}",shift);
 });
-shifts.MapPost("/{id:long}/close", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id, ShiftCloseInput x, HttpContext ctx, CashDb db, ICashboxAccess access, IBalanceService balances, Audit audit) =>
+shifts.MapPost("/{id:long}/close", [Authorize(Roles = CashOperators)] async (long id, ShiftCloseInput x, HttpContext ctx, CashDb db, ICashboxAccess access, IBalanceService balances, Audit audit) =>
 {
     if(x.ClosingBalance<0||decimal.Round(x.ClosingBalance,2)!=x.ClosingBalance)return Results.Problem("Фактический остаток должен быть неотрицательным, с точностью до дирама.",statusCode:400);
     await using var tx=await db.Database.BeginTransactionAsync(ctx.RequestAborted);

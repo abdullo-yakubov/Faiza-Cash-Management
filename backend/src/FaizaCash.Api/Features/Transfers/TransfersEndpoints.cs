@@ -18,7 +18,7 @@ public static class TransfersEndpoints
     public static IEndpointRouteBuilder MapTransfersEndpoints(this IEndpointRouteBuilder app)
     {
         var transfers = app.MapGroup("/api/transfers").RequireAuthorization().WithTags("Transfers");
-transfers.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (CashTransferInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
+transfers.MapPost("", [Authorize(Roles = CashOperators)] async (CashTransferInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
 {
     var description=x.Description?.Trim();
     if (x.SourceCashboxId == x.TargetCashboxId || !Money.IsValid(x.Amount) || x.Date==DateOnly.MinValue || x.Date > Local.Today || x.RequestKey == Guid.Empty || string.IsNullOrWhiteSpace(description) || description.Length > 500 || description.Contains('\0'))
@@ -51,8 +51,8 @@ transfers.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",cashier")]
     var targetBalance=BalanceRules.BalanceAt(targetOpeningAmount,targetLedger,x.Date);
     if(sourceBalance<x.Amount||!BalanceRules.CanPost(sourceOpeningAmount,sourceLedger,new(x.Date,sourceSeq,"expense",x.Amount)))return Results.Conflict();
     if(target.BalanceLimit.HasValue&&targetBalance+x.Amount>target.BalanceLimit.Value||targetBalance+x.Amount>9999999999999999.99m)return Results.Conflict();
-    var expenseCategory=await db.Categories.Where(c=>c.Active&&c.Type=="expense").OrderBy(c=>c.Id).FirstOrDefaultAsync(ctx.RequestAborted);
-    var incomeCategory=await db.Categories.Where(c=>c.Active&&c.Type=="income").OrderBy(c=>c.Id).FirstOrDefaultAsync(ctx.RequestAborted);
+    var expenseCategory=await db.Categories.Where(c=>c.IsSystem&&c.Type=="expense").OrderBy(c=>c.Id).FirstOrDefaultAsync(ctx.RequestAborted);
+    var incomeCategory=await db.Categories.Where(c=>c.IsSystem&&c.Type=="income").OrderBy(c=>c.Id).FirstOrDefaultAsync(ctx.RequestAborted);
     if(expenseCategory is null||incomeCategory is null)return Results.Conflict();
     var transfer=new CashTransfer{SourceCashboxId=source.Id,TargetCashboxId=target.Id,Date=x.Date,Amount=x.Amount,Description=description,RequestKey=x.RequestKey,CreatedBy=ctx.UserId()}; db.Transfers.Add(transfer); await db.SaveChangesAsync(ctx.RequestAborted);
     var year=(short)x.Date.Year; var sourceCounter=await db.Sequences.SingleOrDefaultAsync(s=>s.CashboxId==source.Id&&s.Type=="expense"&&s.Year==year,ctx.RequestAborted); var targetCounter=await db.Sequences.SingleOrDefaultAsync(s=>s.CashboxId==target.Id&&s.Type=="income"&&s.Year==year,ctx.RequestAborted); if(sourceCounter is null){sourceCounter=new DocumentSequence{CashboxId=source.Id,Type="expense",Year=year};db.Sequences.Add(sourceCounter);} if(targetCounter is null){targetCounter=new DocumentSequence{CashboxId=target.Id,Type="income",Year=year};db.Sequences.Add(targetCounter);} sourceCounter.LastNumber++; targetCounter.LastNumber++;

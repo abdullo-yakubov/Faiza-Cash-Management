@@ -23,6 +23,7 @@ internal static async Task<IResult?> Validate(OperationInput x, CashDb db, CashO
         return null; // Reversal retains the original category even though its direction is opposite.
     }
     var previousCategory=previous?.CategoryId;var previousType=previous?.Type;var previousParty=previous?.CounterpartyId;
+    if (await db.Categories.AnyAsync(c => c.Id == x.CategoryId && c.IsSystem)) return Results.Problem("Системные категории межкассового перевода в документах вручную не используются.", statusCode: 400);
     if (!await db.Categories.AnyAsync(c => c.Id == x.CategoryId && (c.Active || c.Id==previousCategory&&c.Type==previousType) && c.Type == x.Type)) return Results.Problem("Укажите активную категорию нужного типа.", statusCode: 400);
     if (x.CounterpartyId.HasValue && !await db.Counterparties.AnyAsync(c => c.Id == x.CounterpartyId && (c.Active||c.Id==previousParty))) return Results.Problem("Контрагент не найден.", statusCode: 400);
     if (x.DocumentTypeId.HasValue && !await db.DocumentTypes.AnyAsync(c => c.Id == x.DocumentTypeId && c.Active)) return Results.Problem("Тип документа не найден.", statusCode: 400);

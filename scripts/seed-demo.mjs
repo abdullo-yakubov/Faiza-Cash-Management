@@ -40,6 +40,14 @@ for(const item of demoCashboxes){
  boxes[item.code]=created.id;
 }
 const representative=await api('/users',{method:'POST',body:{login:'demo-agent',fullName:'Рахимов Далер (демо)',password:crypto.randomBytes(16).toString('hex')+'Aa1',roles:['manager'],mustChangePassword:true}});
+// Разделение обязанностей: администратор только настраивает справочники, кассы и пользователей.
+// Финансовые операции демо-наполнения выполняет отдельный технический бухгалтер с доступом к демо-кассам;
+// его случайный пароль нигде не сохраняется, а после наполнения учётная запись отключается.
+const adminToken=login.accessToken;
+const operatorPassword=crypto.randomBytes(16).toString('hex')+'Aa1';
+const operator=await api('/users',{method:'POST',body:{login:'demo-seed-accountant',fullName:'Бухгалтер демо-наполнения',password:operatorPassword,roles:['accountant'],mustChangePassword:false}});
+for(const id of Object.values(boxes))await api('/access',{method:'POST',body:{userId:operator.id,cashboxId:id}});
+setToken((await api('/auth/login',{method:'POST',body:{login:operator.login,password:operatorPassword}})).accessToken);
 
 // Main cashbox history comes from the shared demo plan; its first row is replaced by the initial balance above.
 const mainRows=demoOperations(today).filter(row=>row.category!=='Начальный остаток').map(row=>({...row,box:'DSH-MAIN'}));
@@ -80,4 +88,6 @@ for(const debt of demoDebts){
 const collected=await api('/representative-receipts',{method:'POST',body:{representativeId:representative.id,counterpartyId:party(0),basisType:'order',basisReference:'ЗАКАЗ-1050 (демо)',amount:'450.00',cashboxId:boxes['KHJ-01'],requestKey:crypto.randomUUID()}});
 const handed=await api('/representative-receipts',{method:'POST',body:{representativeId:representative.id,counterpartyId:party(0),basisType:'delivery',basisReference:'ДОСТАВКА-12 (демо)',amount:'300.00',cashboxId:boxes['KHJ-01'],requestKey:crypto.randomUUID()}});
 await api(`/representative-receipts/${handed.id}/handover`,{method:'POST'});
+setToken(adminToken);
+await api(`/users/${operator.id}`,{method:'PATCH',body:{active:false}});
 console.log(`Учебное наполнение завершено: 3 кассы (Душанбе, Худжанд, Бохтар) с начальными остатками, смены за 20 дней (одна с недостачей ${demoDiscrepancy.difference}), межкассовый перевод, 3 задолженности (частичная оплата, просрочка, представитель), квитанции представителя #${collected.id} и #${handed.id}, 3 черновика и открытые смены на сегодня.`);

@@ -456,6 +456,9 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -470,6 +473,11 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ParentId");
+
+                    b.HasIndex("Type")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Categories_SystemType")
+                        .HasFilter("\"IsSystem\"");
 
                     b.ToTable("Categories", t =>
                         {

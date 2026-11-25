@@ -29,7 +29,7 @@ receipts.MapGet("", [Authorize] async (CashDb db, Guid? representativeId, string
         .Select(x=>new{x.Id,x.RepresentativeId,representative=db.Users.Where(u=>u.Id==x.RepresentativeId).Select(u=>u.FullName).FirstOrDefault(),x.CounterpartyId,counterparty=x.Counterparty.Name,x.BasisType,x.BasisReference,x.Amount,x.CashboxId,x.Status,x.RequestKey,x.CreatedAt,x.HandedOverAt,x.AcceptedBy,x.AcceptedAt});
     return await ListPage(ctx,query,page,pageSize,ctx.RequestAborted);
 });
-receipts.MapPost("/{id:long}/cancel", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (long id, CancelInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
+receipts.MapPost("/{id:long}/cancel", [Authorize(Roles = DebtOperators)] async (long id, CancelInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
 {
     var reason=x.Reason?.Trim();
     if(string.IsNullOrWhiteSpace(reason)||reason.Length>500||reason.Contains('\0'))return Results.Problem("Укажите причину отмены (до 500 символов).",statusCode:400);
@@ -43,7 +43,7 @@ receipts.MapPost("/{id:long}/cancel", [Authorize(Roles = Admin + "," + Accountan
     await tx.CommitAsync(ctx.RequestAborted);
     return Results.Ok(r);
 });
-receipts.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (RepresentativeReceiptInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
+receipts.MapPost("", [Authorize(Roles = DebtOperators)] async (RepresentativeReceiptInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
 {
     // D-05: exact money, bounded reference, mandatory idempotency key, transactional create.
     var reference=x.BasisReference?.Trim();
@@ -68,8 +68,8 @@ receipts.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",manager")] 
     await tx.CommitAsync(ctx.RequestAborted);
     return Results.Created($"/api/representative-receipts/{r.Id}",r);
 });
-receipts.MapPost("/{id:long}/handover", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (long id, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { var r=await db.RepresentativeReceipts.FindAsync(id); if(r is null)return Results.NotFound(); await access.Require(ctx.UserId(),r.CashboxId,ctx.RequestAborted); if(r.Status!="collected")return Results.Conflict(); r.Status="handed_over";r.HandedOverAt=DateTime.UtcNow;await db.SaveChangesAsync();await audit.Add(ctx.UserId(),"representative_receipt_handed_over","representative_receipt",id,new{});return Results.Ok(r); });
-receipts.MapPost("/{id:long}/accept", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { var r=await db.RepresentativeReceipts.FindAsync(id); if(r is null)return Results.NotFound(); await access.Require(ctx.UserId(),r.CashboxId,ctx.RequestAborted); if(r.Status!="handed_over")return Results.Conflict(); r.Status="accepted";r.AcceptedAt=DateTime.UtcNow;r.AcceptedBy=ctx.UserId();await db.SaveChangesAsync();await audit.Add(ctx.UserId(),"representative_receipt_accepted","representative_receipt",id,new{});return Results.Ok(r); });
+receipts.MapPost("/{id:long}/handover", [Authorize(Roles = DebtOperators)] async (long id, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { var r=await db.RepresentativeReceipts.FindAsync(id); if(r is null)return Results.NotFound(); await access.Require(ctx.UserId(),r.CashboxId,ctx.RequestAborted); if(r.Status!="collected")return Results.Conflict(); r.Status="handed_over";r.HandedOverAt=DateTime.UtcNow;await db.SaveChangesAsync();await audit.Add(ctx.UserId(),"representative_receipt_handed_over","representative_receipt",id,new{});return Results.Ok(r); });
+receipts.MapPost("/{id:long}/accept", [Authorize(Roles = CashOperators)] async (long id, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) => { var r=await db.RepresentativeReceipts.FindAsync(id); if(r is null)return Results.NotFound(); await access.Require(ctx.UserId(),r.CashboxId,ctx.RequestAborted); if(r.Status!="handed_over")return Results.Conflict(); r.Status="accepted";r.AcceptedAt=DateTime.UtcNow;r.AcceptedBy=ctx.UserId();await db.SaveChangesAsync();await audit.Add(ctx.UserId(),"representative_receipt_accepted","representative_receipt",id,new{});return Results.Ok(r); });
         return app;
     }
 }

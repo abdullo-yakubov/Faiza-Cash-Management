@@ -29,7 +29,7 @@ settlements.MapGet("", [Authorize(Roles = Admin + "," + Accountant + "," + Manag
         .OrderBy(x=>x.DueDate).ThenByDescending(x=>x.CreatedAt);
     return await ListPage(ctx,query.Select(x=>new{x.Id,x.CounterpartyId,cashboxId=x.CashboxId,cashbox=x.Cashbox==null?null:x.Cashbox.Name,counterparty=x.CounterpartyNameSnapshot??x.Counterparty.Name,representativeId=x.RepresentativeId,representative=db.Users.Where(u=>u.Id==x.RepresentativeId).Select(u=>u.FullName).FirstOrDefault(),x.Direction,x.BasisType,x.BasisReference,x.TotalAmount,x.PaidAmount,remaining=x.Status=="cancelled"?0m:x.TotalAmount-x.PaidAmount,x.Status,x.DueDate,overdue=(x.Status=="open"||x.Status=="partially_paid")&&x.DueDate<date}),page,pageSize,ct);
 });
-settlements.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (SettlementInput x, CashDb db, Audit audit, HttpContext ctx, ICashboxAccess access) =>
+settlements.MapPost("", [Authorize(Roles = DebtOperators)] async (SettlementInput x, CashDb db, Audit audit, HttpContext ctx, ICashboxAccess access) =>
 {
     if(x.CashboxId<=0)return Results.BadRequest();
     await access.Require(ctx.UserId(),x.CashboxId,ctx.RequestAborted);
@@ -41,7 +41,7 @@ settlements.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",manager"
     var settlement=new Settlement{CashboxId=x.CashboxId,CounterpartyId=x.CounterpartyId,CounterpartyNameSnapshot=party.Name,RepresentativeId=x.RepresentativeId,Direction=direction,BasisType=basis,BasisReference=reference,TotalAmount=x.TotalAmount,DueDate=x.DueDate}; db.Settlements.Add(settlement); await db.SaveChangesAsync(ctx.RequestAborted); await audit.Add(ctx.UserId(),"settlement_created","settlement",settlement.Id,new{settlement.CounterpartyId,settlement.CashboxId,settlement.RepresentativeId,settlement.Direction,settlement.BasisType,settlement.BasisReference,settlement.TotalAmount}); return Results.Created($"/api/settlements/{settlement.Id}",settlement);
 });
 settlements.MapGet("/{id:long}/history", [Authorize] async (long id,CashDb db, HttpContext ctx, ICashboxAccess access) => { var allowed=await access.AllowedCashboxes(ctx.UserId(),ctx.RequestAborted); var visible=await db.Settlements.AnyAsync(s=>s.Id==id&&(ctx.User.IsInRole(Admin)||(s.CashboxId.HasValue&&allowed.Contains(s.CashboxId.Value))||s.Allocations.Any(a=>allowed.Contains(a.Operation.CashboxId))),ctx.RequestAborted); if(!visible)return Results.NotFound(); return Results.Ok(await db.PaymentAllocations.AsNoTracking().Where(x=>x.SettlementId==id&&allowed.Contains(x.Operation.CashboxId)).Include(x=>x.Operation).OrderBy(x=>x.CreatedAt).Select(x=>new{x.Id,x.SettlementId,x.OperationId,x.Amount,x.CreatedAt,operationType=x.Operation.Type,cashboxId=x.Operation.CashboxId,documentNumber=x.Operation.DocumentNumber}).ToListAsync()); });
-settlements.MapPost("/{id:long}/cancel", [Authorize(Roles = Admin + "," + Accountant)] async (long id, CancelInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
+settlements.MapPost("/{id:long}/cancel", [Authorize(Roles = Accountant)] async (long id, CancelInput x, HttpContext ctx, CashDb db, ICashboxAccess access, Audit audit) =>
 {
     var reason=x.Reason?.Trim();
     if(string.IsNullOrWhiteSpace(reason)||reason.Length>500||reason.Contains('\0'))return Results.Problem("Укажите причину отмены (до 500 символов).",statusCode:400);
@@ -56,7 +56,7 @@ settlements.MapPost("/{id:long}/cancel", [Authorize(Roles = Admin + "," + Accoun
     await tx.CommitAsync(ctx.RequestAborted);
     return Results.Ok(new{s.Id,s.Status,s.TotalAmount,s.PaidAmount,remaining=0m});
 });
-settlements.MapPost("/{id:long}/allocate", [Authorize(Roles = Admin + "," + Accountant + ",manager")] async (long id, PaymentAllocationInput x, HttpContext ctx, CashDb db, Audit audit) =>
+settlements.MapPost("/{id:long}/allocate", [Authorize(Roles = DebtOperators)] async (long id, PaymentAllocationInput x, HttpContext ctx, CashDb db, Audit audit) =>
 {
     if(!Money.IsValid(x.Amount))return Results.BadRequest(); await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted,ctx.RequestAborted);
     var settlement=await db.Settlements.FromSqlInterpolated($"SELECT * FROM \"Settlements\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(ctx.RequestAborted); if(settlement is null)return Results.NotFound(); var access=ctx.RequestServices.GetRequiredService<ICashboxAccess>(); if(settlement.CashboxId.HasValue)await access.Require(ctx.UserId(),settlement.CashboxId.Value,ctx.RequestAborted); else if(!ctx.User.IsInRole(Admin))return Results.NotFound();

@@ -56,6 +56,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<CashboxOpening>().HasOne<User>().WithMany().HasForeignKey(x=>x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
 
         b.Entity<Category>().HasOne<Category>().WithMany().HasForeignKey(x=>x.ParentId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<Category>().HasIndex(x=>x.Type).IsUnique().HasFilter("\"IsSystem\"").HasDatabaseName("IX_Categories_SystemType");
         b.Entity<Category>().ToTable(t=>t.HasCheckConstraint("CK_Categories_Type","\"Type\" IN ('income','expense')"));
         b.Entity<Counterparty>().ToTable(t=>t.HasCheckConstraint("CK_Counterparties_Kind","\"Kind\" IN ('client','supplier','employee','other')"));
         b.Entity<Settlement>().Property(x=>x.TotalAmount).HasPrecision(18,2); b.Entity<Settlement>().Property(x=>x.PaidAmount).HasPrecision(18,2);

@@ -26,6 +26,7 @@ public static class DirectoryEndpoints
         app.MapPatch("/api/categories/{id:long}",async(long id,DirectoryPatch x,CashDb db)=>
         {
             await using var tx=await db.Database.BeginTransactionAsync();var row=await db.Categories.FindAsync(id);if(row==null)return Results.NotFound();
+            if(row.IsSystem&&(x.Name!=null&&Name(x.Name)!=row.Name||x.Active==false))return Results.Problem("Системную категорию межкассового перевода нельзя переименовать или архивировать.",statusCode:409);
             if(x.Name!=null){var name=Name(x.Name);await Lock(db,"category:"+row.Type+":"+name.ToUpperInvariant());if((await db.Categories.Where(c=>c.Id!=id&&c.Type==row.Type).Select(c=>c.Name).ToListAsync()).Any(n=>string.Equals(Name(n),name,StringComparison.OrdinalIgnoreCase)))throw new BusinessException("Категория с таким названием уже существует.");row.Name=name;}
             if(x.Active.HasValue)row.Active=x.Active.Value;await db.SaveChangesAsync();await tx.CommitAsync();return Results.NoContent();
         }).RequireAuthorization(p=>p.RequireRole(auth));

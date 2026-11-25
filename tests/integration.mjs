@@ -1,5 +1,6 @@
 import {runSecurityCases} from './security/cases.mjs';
 import {runReviewCases} from './review-cases.mjs';
+import {grantFinanceRole} from './integration/finance-role.mjs';
 import {spawn,spawnSync} from 'node:child_process';import fs from 'node:fs';import crypto from 'node:crypto';import assert from 'node:assert/strict';
 const suite=process.argv.find(x=>x.startsWith('--suite='))?.split('=')[1]||'all';
 assert.ok(['all','integration','security'].includes(suite),'Use --suite=all|integration|security');
@@ -26,7 +27,7 @@ const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Dushanbe'}).format(ne
 const draft=(type,amount,key=crypto.randomUUID(),boxId=box)=>ok('/operations',{method:'POST',body:{cashboxId:boxId,date,type,amount,description:'Integration test '+type,categoryId:type==='income'?income:expense,counterpartyId:null,documentTypeId:null,requestKey:key}});
 try{
  for(let i=0;i<80;i++){try{if((await fetch(base+'/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,250));if(i===79)throw new Error('API startup failed; inspect .runtime/integration-server.log');}
- await test('Migrations applied and initial administrator requires password change',async()=>{const r=await request('/auth/login',{method:'POST',body:{login:cfg.Seed__AdminLogin,password:cfg.Seed__AdminPassword},auth:null,cookies:null});assert.equal(r.status,200);cookie=r.headers.get('set-cookie').split(';')[0];const data=await r.json();token=data.accessToken;admin=data.user;assert.equal(admin.mustChangePassword,true);assert.equal((await request('/cashboxes')).status,403);await ok('/auth/change-password',{method:'POST',body:{oldPassword:cfg.Seed__AdminPassword,newPassword:crypto.randomBytes(16).toString('hex')+'Aa1'}});});
+ await test('Migrations applied and initial administrator requires password change',async()=>{const r=await request('/auth/login',{method:'POST',body:{login:cfg.Seed__AdminLogin,password:cfg.Seed__AdminPassword},auth:null,cookies:null});assert.equal(r.status,200);cookie=r.headers.get('set-cookie').split(';')[0];const data=await r.json();token=data.accessToken;admin=data.user;assert.equal(admin.mustChangePassword,true);assert.equal((await request('/cashboxes')).status,403);const adminPassword=crypto.randomBytes(16).toString('hex')+'Aa1';await ok('/auth/change-password',{method:'POST',body:{oldPassword:cfg.Seed__AdminPassword,newPassword:adminPassword}});const jar={};const elevated=await grantFinanceRole(base,token,cfg.Seed__AdminLogin,adminPassword,jar);token=elevated.token;admin=elevated.user;if(jar.cookie)cookie=jar.cookie;});
  const currencies=await ok('/currencies');const suffix=Date.now();
  await test('Branches are seeded and cashboxes expose branch context',async()=>{const branches=await ok('/branches');assert.ok(branches.some(x=>x.city==='Душанбе'));assert.ok(branches.some(x=>x.city==='Худжанд'));assert.ok(branches.some(x=>x.city==='Бохтар'));});
  box=(await ok('/cashboxes',{method:'POST',body:{code:'T'+suffix,name:'Test cashbox',currencyId:currencies[0].id,balanceLimit:null,branchId:1}})).id;

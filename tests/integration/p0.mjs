@@ -1,6 +1,7 @@
 // P0 regression suite (V7.1): unified balance, opening API, shift reconciliation, business audit,
 // responsible representative on debts. Run from faiza-cash: node tests/integration/p0.mjs
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import {startApi, suiteResults, businessDate, addDays, postOperation, csvRows} from './harness.mjs';
 
 const {test, finish} = suiteResults('p0');
@@ -123,6 +124,43 @@ try {
     assert.equal(report.total, 1); assert.equal(report.items[0].representative, representative.fullName);
     const pdf = await api.request(`/reports/settlements.pdf?representativeId=${representative.id}`, {token: accountant.token});
     assert.equal(pdf.status, 200);
+  });
+
+  await test('SoD-01 pure admin cannot perform financial operations (403)', async () => {
+    const pureAdmin = await api.user('admin');
+    const draft = await api.expect('/operations', {method: 'POST', body: {cashboxId: boxA.id, date: to, type: 'income', amount: '1.00', description: 'SoD draft', categoryId: income, counterpartyId: null, documentTypeId: null, requestKey: crypto.randomUUID()}}, 201);
+    const as = {token: pureAdmin.token};
+    await api.expect('/operations', {...as, method: 'POST', body: {cashboxId: boxA.id, date: to, type: 'income', amount: '1.00', description: 'Admin draft', categoryId: income, counterpartyId: null, documentTypeId: null, requestKey: crypto.randomUUID()}}, 403);
+    await api.expect(`/operations/${draft.id}`, {...as, method: 'PATCH', body: {amount: '2.00', version: draft.version}}, 403);
+    await api.expect(`/operations/${draft.id}/post`, {...as, method: 'POST', body: {expectedVersion: draft.version}}, 403);
+    await api.expect(`/operations/${draft.id}?version=${draft.version}`, {...as, method: 'DELETE'}, 403);
+    await api.expect(`/operations/${draft.id}/reversals`, {...as, method: 'POST', body: {reason: 'SoD', date: to}}, 403);
+    await api.expect('/shifts/open', {...as, method: 'POST', body: {cashboxId: boxB.id, date: to, openingBalance: '0.00'}}, 403);
+    await api.expect('/shifts/1/close', {...as, method: 'POST', body: {closingBalance: '0.00'}}, 403);
+    await api.expect('/transfers', {...as, method: 'POST', body: {sourceCashboxId: boxA.id, targetCashboxId: boxB.id, date: to, amount: '1.00', description: 'SoD', requestKey: crypto.randomUUID()}}, 403);
+    await api.expect('/representative-receipts/1/accept', {...as, method: 'POST'}, 403);
+    await api.expect('/settlements/1/allocate', {...as, method: 'POST', body: {operationId: draft.id, amount: '1.00'}}, 403);
+    // Чтение остаётся доступным администратору.
+    await api.expect(`/operations/${draft.id}`, as, 200);
+    await api.expect('/settlements', as, 200);
+    await api.expect(`/operations/${draft.id}?version=${draft.version}`, {method: 'DELETE'}, 204);
+  });
+
+  await test('SoD-02 transfers use only system categories, which cannot be renamed or archived', async () => {
+    const all = await api.expect('/categories');
+    const systemIncome = all.find(x => x.isSystem && x.type === 'income'), systemExpense = all.find(x => x.isSystem && x.type === 'expense');
+    assert.equal(systemIncome?.name, 'Межкассовый перевод (приход)');
+    assert.equal(systemExpense?.name, 'Межкассовый перевод (расход)');
+    await api.expect(`/categories/${systemIncome.id}`, {method: 'PATCH', body: {name: 'Другое имя'}}, 409);
+    await api.expect(`/categories/${systemExpense.id}`, {method: 'PATCH', body: {active: false}}, 409);
+    await api.expect('/operations', {method: 'POST', body: {cashboxId: boxA.id, date: to, type: 'income', amount: '1.00', description: 'System category misuse', categoryId: systemIncome.id, counterpartyId: null, documentTypeId: null, requestKey: crypto.randomUUID()}}, 400);
+    const boxC = await api.cashbox('P0C', branch.id), boxD = await api.cashbox('P0D', branch.id);
+    await api.expect(`/cashboxes/${boxC.id}/opening`, {method: 'POST', body: {date: to, amount: '10.00'}}, 201);
+    await api.expect('/shifts/open', {method: 'POST', body: {cashboxId: boxC.id, date: to, openingBalance: '10.00'}}, 201);
+    await api.expect('/shifts/open', {method: 'POST', body: {cashboxId: boxD.id, date: to, openingBalance: '0.00'}}, 201);
+    const transfer = await api.expect('/transfers', {method: 'POST', body: {sourceCashboxId: boxC.id, targetCashboxId: boxD.id, date: to, amount: '1.00', description: 'System categories', requestKey: crypto.randomUUID()}}, 201);
+    const source = await api.expect(`/operations/${transfer.sourceOperationId}`), target = await api.expect(`/operations/${transfer.targetOperationId}`);
+    assert.equal(source.categoryId, systemExpense.id); assert.equal(target.categoryId, systemIncome.id);
   });
 } catch (error) {
   console.error(error.message); process.exitCode = 1;

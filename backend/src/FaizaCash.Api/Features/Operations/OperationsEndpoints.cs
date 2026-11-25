@@ -33,7 +33,7 @@ operations.MapGet("", [Authorize] async (HttpContext ctx,CashDb db,ICashboxAcces
     return await Paged(ordered, page, pageSize, x => x.View());
 });
 operations.MapGet("/{id:long}", [Authorize] async (long id,HttpContext ctx,CashDb db,ICashboxAccess access) => { var x = await db.Operations.Include(x => x.Category).Include(x => x.Counterparty).Include(x => x.Author).SingleOrDefaultAsync(x => x.Id == id);if(x is null)return Results.NotFound();await access.Require(ctx.UserId(),x.CashboxId,ctx.RequestAborted);return Results.Ok(x.View()); });
-operations.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (OperationInput x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
+operations.MapPost("", [Authorize(Roles = CashOperators)] async (OperationInput x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
 {
     await using var tx = await db.Database.BeginTransactionAsync();
     await access.Require(ctx.UserId(),x.CashboxId,ctx.RequestAborted);
@@ -44,12 +44,12 @@ operations.MapPost("", [Authorize(Roles = Admin + "," + Accountant + ",cashier")
     await CaptureDocumentSnapshot(db,o,ctx.RequestAborted);
     db.Operations.Add(o); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_created", "operation", o.Id, new { }); await tx.CommitAsync(); return Results.Created($"/api/operations/{o.Id}", o.View());
 });
-operations.MapPatch("/{id:long}", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id, OperationPatch x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
+operations.MapPatch("/{id:long}", [Authorize(Roles = CashOperators)] async (long id, OperationPatch x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
 {
     await using var tx=await db.Database.BeginTransactionAsync();
     var o = await db.Operations.FromSqlInterpolated($"SELECT * FROM \"Operations\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(); if (o is null) return Results.NotFound();
     await access.Require(ctx.UserId(),o.CashboxId,ctx.RequestAborted);
-    if ((o.CreatedBy != ctx.UserId() && !ctx.User.IsInRole(Admin) && !ctx.User.IsInRole(Accountant)) || o.Status != "draft") return Results.Problem("Можно изменить только собственный черновик.", statusCode: 403);
+    if ((o.CreatedBy != ctx.UserId() && !ctx.User.IsInRole(Accountant)) || o.Status != "draft") return Results.Problem("Можно изменить только собственный черновик.", statusCode: 403);
     if (o.Version != x.Version) return Results.Problem("Черновик изменён другим пользователем.", statusCode: 409);
     var input = new OperationInput(x.CashboxId ?? o.CashboxId, x.Date ?? o.Date, x.Type ?? o.Type, x.Amount ?? o.Amount, x.Description ?? o.Description, x.CategoryId ?? o.CategoryId, (x.ClearCounterparty?null:x.CounterpartyId ?? o.CounterpartyId), x.DocumentTypeId ?? o.DocumentTypeId, o.RequestKey);
     await access.Require(ctx.UserId(),input.CashboxId,ctx.RequestAborted);
@@ -57,17 +57,17 @@ operations.MapPatch("/{id:long}", [Authorize(Roles = Admin + "," + Accountant + 
     o.CashboxId = input.CashboxId; o.Date = input.Date; o.Type = input.Type!; o.Amount = input.Amount; o.Description = input.Description!.Trim(); o.CategoryId = input.CategoryId; o.CounterpartyId = input.CounterpartyId; o.DocumentTypeId = input.DocumentTypeId; await CaptureDocumentSnapshot(db,o,ctx.RequestAborted); o.Version++; o.UpdatedAt = DateTime.UtcNow;
     await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_updated", "operation", id, new { }); await tx.CommitAsync(); return Results.Ok(o.View());
 });
-operations.MapDelete("/{id:long}", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id, int version, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
+operations.MapDelete("/{id:long}", [Authorize(Roles = CashOperators)] async (long id, int version, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
 {
     await using var tx=await db.Database.BeginTransactionAsync();
     var o = await db.Operations.FromSqlInterpolated($"SELECT * FROM \"Operations\" WHERE \"Id\"={id} FOR UPDATE").SingleOrDefaultAsync(); if (o is null) return Results.NotFound();
     await access.Require(ctx.UserId(),o.CashboxId,ctx.RequestAborted);
-    if ((o.CreatedBy != ctx.UserId() && !ctx.User.IsInRole(Admin) && !ctx.User.IsInRole(Accountant)) || o.Status != "draft") return Results.Problem("Можно удалить только собственный черновик.", statusCode: 403);
+    if ((o.CreatedBy != ctx.UserId() && !ctx.User.IsInRole(Accountant)) || o.Status != "draft") return Results.Problem("Можно удалить только собственный черновик.", statusCode: 403);
     if (o.Version != version) return Results.Problem("Черновик изменён другим пользователем.", statusCode: 409);
     db.Operations.Remove(o); await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_deleted", "operation", id, new { }); await tx.CommitAsync(); return Results.NoContent();
 });
-operations.MapPost("/{id:long}/post", [Authorize(Roles = Admin + "," + Accountant + ",cashier")] async (long id,PostingRequest request,HttpContext ctx,ILedgerService ledger)=>Results.Ok(await ledger.Post(id,request.ExpectedVersion,ctx.UserId(),ctx.User.IsInRole(Admin)||ctx.User.IsInRole(Accountant),ctx.RequestAborted)));
-operations.MapPost("/{id:long}/reversals", [Authorize(Roles = Admin + "," + Accountant)] async (long id, ReversalInput x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
+operations.MapPost("/{id:long}/post", [Authorize(Roles = CashOperators)] async (long id,PostingRequest request,HttpContext ctx,ILedgerService ledger)=>Results.Ok(await ledger.Post(id,request.ExpectedVersion,ctx.UserId(),ctx.User.IsInRole(Accountant),ctx.RequestAborted)));
+operations.MapPost("/{id:long}/reversals", [Authorize(Roles = Accountant)] async (long id, ReversalInput x, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
 {
     await using var tx = await db.Database.BeginTransactionAsync();
     var original = await db.Operations.FromSqlInterpolated($"SELECT * FROM \"Operations\" WHERE \"Id\" = {id} FOR UPDATE").SingleOrDefaultAsync(); if (original is null) return Results.NotFound();

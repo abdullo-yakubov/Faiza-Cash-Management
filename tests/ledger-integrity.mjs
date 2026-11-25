@@ -1,6 +1,7 @@
 // Run from faiza-cash: node tests/ledger-integrity.mjs [--baseline]
 // Uses only the dedicated loopback *_test database; resets its public schema.
 import assert from 'node:assert/strict';
+import {grantFinanceRole} from './integration/finance-role.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -94,7 +95,9 @@ try {
   assert.ok(ready, 'Test API did not become ready');
   const login = await expect('/auth/login', {method: 'POST', body: {login: 'catalog-admin', password: initialPassword}, token: null}, 200);
   adminToken = login.accessToken;
-  await expect('/auth/change-password', {method: 'POST', body: {oldPassword: initialPassword, newPassword: crypto.randomBytes(20).toString('hex') + 'Aa1'}}, 204);
+  const adminPassword = crypto.randomBytes(20).toString('hex') + 'Aa1';
+  await expect('/auth/change-password', {method: 'POST', body: {oldPassword: initialPassword, newPassword: adminPassword}}, 204);
+  adminToken = (await grantFinanceRole(base, adminToken, 'catalog-admin', adminPassword)).token;
   const tokens = {admin: adminToken};
   const users = {};
   for (const role of ['accountant', 'cashier', 'manager', 'auditor']) {
