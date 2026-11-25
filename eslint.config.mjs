@@ -33,7 +33,7 @@ export default [
       'react/jsx-key': 'warn',
       'react/no-danger': 'error',
       'react/jsx-no-target-blank': 'error',
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^(_|React$)' }],
       // Деньги: запрет float-разбора сумм (инвариант 4 CLAUDE.md) — использовать utils/format.js
       'no-restricted-globals': ['error', { name: 'parseFloat', message: 'Не используйте float для денег: см. utils/format.js (BigInt-копейки).' }],
       'no-restricted-properties': ['error', { object: 'Number', property: 'parseFloat', message: 'Не используйте float для денег: см. utils/format.js.' }],
