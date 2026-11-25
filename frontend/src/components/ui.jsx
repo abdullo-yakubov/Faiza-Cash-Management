@@ -1,10 +1,85 @@
-import React,{useEffect,useState} from 'react';
-import {Wallet,ArrowUpRight,ChevronLeft,ChevronRight} from 'lucide-react';
-import {api} from '../services/api';
-import {money,records,dateText,today} from '../utils/format';
-export function Brand(){return <div className="brand"><span className="brand-mark"><Wallet size={23}/></span><span>faiza<span className="brand-light">cash</span><small>ФИНАНСЫ В ПОРЯДКЕ</small></span></div>}
-export function Field({label,children,error,errorId}){return <label className="field"><span>{label}</span>{children}{error&&<span id={errorId} className="field-error" role="alert">{error}</span>}</label>}
-export function Empty({text}){return <div className="empty"><Wallet size={28}/><p>{text}</p></div>}
-export function Stat({label,value,currency,icon:Icon,hero,foot,positive}){return <section className={'stat '+(hero?'hero':'')}><div className="stat-label">{label}<span className={'stat-icon '+(positive?'positive':'')}><Icon size={18}/></span></div><div className="stat-value">{money(value)} <small>{currency}</small></div><div className="stat-foot">{hero?<span className="live-dot"/>:null}{foot}</div></section>}
-export function Pager({index=1,total,onChange,pageSize=15,hideButtons=false}){const pages=Math.max(1,Math.ceil(total/pageSize));return <div className="table-footer"><span>{records(total)}</span>{!hideButtons&&<div className="pagination"><button title="Предыдущая страница" aria-label="Предыдущая страница" disabled={index<=1} onClick={()=>onChange(index-1)}><ChevronLeft size={20}/></button><span>Страница {index} из {pages}</span><button title="Следующая страница" aria-label="Следующая страница" disabled={index>=pages} onClick={()=>onChange(index+1)}><ChevronRight size={20}/></button></div>}</div>}
-export function CashCard({box,currency,onOpen,onEdit}){const[balance,setBalance]=useState(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);useEffect(()=>{const controller=new AbortController();setError('');setBalance(null);api('/cashboxes/'+box.id+'/balance',{signal:controller.signal}).then(setBalance).catch(e=>{if(e.name!=='AbortError')setError(e.message);});return()=>controller.abort();},[box.id,attempt]);return <section className="panel cash-card"><div className="panel-heading"><span className="cash-symbol"><Wallet size={23}/></span><span className={'badge '+(box.active?'posted':'archived')}>{box.active?'Активна':'Архив'}</span></div><h2>{box.name}</h2><p className="muted">Код: {box.code} · {box.currency||currency}</p><p className="field-hint">Остаток на {dateText(balance?.date||today())}, по проведённым документам</p>{error?<div className="error" role="alert">{error}<button className="text-btn" onClick={()=>setAttempt(v=>v+1)}>Повторить</button></div>:<div className="stat-value" aria-live="polite">{balance?money(balance.balance):'Загрузка…'} <small>{currency}</small></div>}<button className="text-btn" onClick={onOpen}>Открыть операции кассы <ArrowUpRight size={18}/></button>{onEdit&&<button className="text-btn" style={{marginTop:16}} onClick={onEdit}>Изменить кассу</button>}</section>}
+import { useCallback, useEffect, useState } from 'react'
+
+/** Загружает данные и даёт функцию перезагрузки. */
+export function useLoad(loader, deps) {
+  const [state, setState] = useState({ data: null, error: null, loading: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const run = useCallback(loader, deps)
+  const reload = useCallback(() => {
+    setState((s) => ({ ...s, loading: true }))
+    return run()
+      .then((data) => setState({ data, error: null, loading: false }))
+      .catch((error) => setState({ data: null, error, loading: false }))
+  }, [run])
+  useEffect(() => {
+    reload()
+  }, [reload])
+  return { ...state, reload }
+}
+
+export function Alert({ error, kind = 'error', children }) {
+  const text = error ? error.message || String(error) : children
+  if (!text) return null
+  return <div className={`alert alert-${kind}`} role={kind === 'error' ? 'alert' : 'status'}>{text}</div>
+}
+
+export function Field({ label, children, hint }) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      {children}
+      {hint && <span className="field-hint">{hint}</span>}
+    </label>
+  )
+}
+
+export function Modal({ title, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="modal-head">
+          <h2>{title}</h2>
+          <button className="btn-icon" onClick={onClose} aria-label="Закрыть">×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** Форма с обработкой ошибки и блокировкой кнопки на время отправки. */
+export function useSubmit(action) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const submit = async (e) => {
+    e?.preventDefault?.()
+    setBusy(true)
+    setError(null)
+    try {
+      await action()
+    } catch (err) {
+      setError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { busy, error, submit, setError }
+}
+
+export function Empty({ children }) {
+  return <div className="empty">{children}</div>
+}
+
+export function PageHead({ title, children }) {
+  return (
+    <div className="page-head">
+      <h1>{title}</h1>
+      <div className="page-actions">{children}</div>
+    </div>
+  )
+}
