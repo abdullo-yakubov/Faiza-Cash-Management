@@ -44,7 +44,7 @@
 | Отдельный API-набор | `node tests/integration.mjs --suite=integration`, `node tests/security.mjs`, `node tests/catalog.mjs`, `node tests/ledger-integrity.mjs`, `node tests/integration/p0.mjs` … |
 | E2E | `node tests/e2e.mjs` (или `npm --prefix frontend run test:e2e`) |
 | Форматирование C# (проверка) | `dotnet format backend/FaizaCash.sln --verify-no-changes` |
-| Линтер клиента | `npx --prefix frontend eslint -c eslint.config.js frontend/src` (после установки devDependencies, см. `REPORT-C.md`) |
+| Линтер клиента | `npx eslint frontend/src frontend/tests` (после установки devDependencies, см. `REPORT-C.md`) |
 
 `run-all.mjs` не останавливается на упавшем наборе (кроме сборки) и печатает список упавших в конце; код выхода ненулевой, если хоть один упал. Результаты xUnit сохраняются в `.runtime/unit-results/unit-tests.trx`.
 
