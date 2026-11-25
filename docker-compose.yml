@@ -1,41 +1,44 @@
+# Запуск всей системы: docker compose up --build
+# Перед первым запуском скопируйте .env.example в .env и задайте свои пароли.
 services:
   db:
-    image: postgres:18.3-alpine
+    image: postgres:18-alpine
     environment:
-      POSTGRES_DB: faiza_cash
-      POSTGRES_USER: faiza_app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: faiza_gold
+      POSTGRES_USER: faiza
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env}
     volumes:
-      - postgres-data-v2:/var/lib/postgresql
+      - db-data:/var/lib/postgresql
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U faiza_app -d faiza_cash']
+      test: ['CMD-SHELL', 'pg_isready -U faiza -d faiza_gold']
       interval: 3s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+
   api:
     build: ./backend
     environment:
-      ConnectionStrings__CashDb: Host=db;Database=faiza_cash;Username=faiza_app;Password=${POSTGRES_PASSWORD}
-      Jwt__Key: ${JWT__KEY:?Set JWT__KEY}
-      Jwt__Issuer: FaizaCash
-      Jwt__Audience: FaizaCash
-      Seed__AdminLogin: ${SEED__ADMINLOGIN:-admin}
-      Seed__AdminPassword: ${SEED__ADMINPASSWORD:?Set SEED__ADMINPASSWORD}
-      ASPNETCORE_ENVIRONMENT: Development
-      Frontend__Origins: http://localhost:8085;http://127.0.0.1:8085
-      Frontend__Origin: http://localhost:8085
-      AllowedHosts: localhost;127.0.0.1;api
-      Logs__Directory: /tmp/faiza-logs
+      ConnectionStrings__Default: Host=db;Database=faiza_gold;Username=faiza;Password=${POSTGRES_PASSWORD}
+      Seed__AdminLogin: ${ADMIN_LOGIN:-admin}
+      Seed__AdminPassword: ${ADMIN_PASSWORD:?Задайте ADMIN_PASSWORD в .env}
+      Seed__Demo: ${DEMO_DATA:-false}
+      Seed__DemoPassword: ${DEMO_PASSWORD:-Demo12345}
+    volumes:
+      - api-keys:/keys
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - '127.0.0.1:5085:8080'
-  frontend:
+    restart: unless-stopped
+
+  web:
     build: ./frontend
     ports:
       - '127.0.0.1:8085:80'
     depends_on:
       - api
+    restart: unless-stopped
+
 volumes:
-  postgres-data-v2:
+  db-data:
+  api-keys:

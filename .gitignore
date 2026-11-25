@@ -1,10 +1,15 @@
-.env
-.env.docker
-**/bin/
-**/obj/
-**/node_modules/
-**/dist/
-.runtime/
-*.log
-.vs/
+# .NET
+bin/
+obj/
 *.user
+.vs/
+
+# Node
+node_modules/
+dist/
+
+# Локальные настройки и секреты
+.env
+*.local.json
+.runtime/
+TestResults/

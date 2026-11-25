@@ -1,9 +1,13 @@
-import React from 'react';
-import {createRoot} from 'react-dom/client';
-import App from './app/App';
-import './styles/app.css';
-import './styles/refinements.css';
-import './styles/animations.css';
-import './styles/password-input.css';
-import './styles/access-management.css';
-createRoot(document.getElementById('root')).render(<App/>);
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import App from './App.jsx'
+import './styles.css'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+)

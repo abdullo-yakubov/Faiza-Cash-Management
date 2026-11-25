@@ -3,20 +3,43 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  build:
+  backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: faiza
+          POSTGRES_PASSWORD: faiza
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U faiza" --health-interval 3s --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: backend/global.json
+      - run: dotnet build backend/FaizaGold.slnx
+      - run: dotnet test backend/FaizaGold.slnx --no-build
+        env:
+          FAIZA_TEST_DB: Host=localhost;Database=postgres;Username=faiza;Password=faiza
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: dotnet restore backend/FaizaCash.sln --locked-mode
-      - run: dotnet build backend/FaizaCash.sln --no-restore
-      - run: dotnet test backend/FaizaCash.sln --no-build
       - run: npm --prefix frontend ci
       - run: npm --prefix frontend test
       - run: npm --prefix frontend run build
       - run: npm --prefix frontend audit --audit-level=high
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env && docker compose config --quiet
+      - run: docker compose build
