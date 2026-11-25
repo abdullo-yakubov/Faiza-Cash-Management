@@ -236,3 +236,16 @@ tr.row-danger td:first-child { box-shadow: inset 3px 0 0 var(--status-danger-bor
 .text-danger { color: var(--status-danger-fg); font-weight: var(--weight-medium); }
 .advance-line { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); }
 .advance-line legend { font-size: var(--text-xs); color: var(--muted); padding: 0 var(--space-1); }
+
+/* Суммы в KPI никогда не обрезаются многоточием: переносим и уменьшаем шрифт. */
+.ui-stat-value { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: clamp(var(--text-xl), 1.1rem + .9vw, var(--text-2xl)); }
+.manager-kpis { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.manager-kpis > * { grid-column: span 3; }
+.manager-kpis > .ui-stat-wide { grid-column: span 4; }
+@media (max-width: 1100px) { .manager-kpis > *, .manager-kpis > .ui-stat-wide { grid-column: span 6; } .manager-kpis > .ui-stat-wide:first-child { grid-column: span 12; } }
+@media (max-width: 560px) { .manager-kpis > * { grid-column: span 6; } .manager-kpis > .ui-stat-wide { grid-column: span 12; } }
+.demo-banner svg { flex-shrink: 0; }
+.dashboard-view .v5-toolbar select { min-width: 170px; }
+.dashboard-view .v5-toolbar { flex-wrap: wrap; align-items: flex-end; }
+.roles-field label.field { display: grid; justify-items: stretch; text-align: left; gap: var(--space-2); }
+.roles-field label.field > span { justify-self: start; }

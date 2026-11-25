@@ -37,9 +37,9 @@ export function ManagerOverview({d, currency = 'TJS', draftCount, reduceMotion})
   const last = series.at(-1);
   return <>
     <div className="ui-tiles manager-kpis">
-      <StatTile label="Общий остаток" value={d.totalBalance} currency={currency} icon={Wallet} tone="accent" hint="по доступным кассам"/>
-      <StatTile label="Приход сегодня" value={d.periodTotals?.todayIncome} currency={currency} tone="income"/>
-      <StatTile label="Расход сегодня" value={d.periodTotals?.todayExpense} currency={currency} tone="expense"/>
+      <StatTile wide label="Общий остаток" value={d.totalBalance} currency={currency} icon={Wallet} tone="accent" hint="по доступным кассам"/>
+      <StatTile wide label="Приход сегодня" value={d.periodTotals?.todayIncome} currency={currency} tone="income"/>
+      <StatTile wide label="Расход сегодня" value={d.periodTotals?.todayExpense} currency={currency} tone="expense"/>
       <StatTile label="Черновики" kind="count" value={draftCount ?? '—'} icon={FileEdit} tone={draftCount ? 'warning' : 'neutral'} hint="не влияют на остаток" href={routeHash({page: 'operations', status: 'draft', from: monthStart(), to: today()})}/>
       <StatTile label="Ждут согласования" kind="count" value={d.pendingApprovals ?? '—'} icon={ClipboardCheck} tone={d.pendingApprovals ? 'warning' : 'neutral'} href="#/approvals"/>
       <StatTile label="Просроченные авансы" kind="count" value={d.overdueAdvances ?? '—'} icon={AlarmClock} tone={d.overdueAdvances ? 'danger' : 'neutral'} href="#/advances?filter=overdue"/>
@@ -60,9 +60,9 @@ export function ManagerOverview({d, currency = 'TJS', draftCount, reduceMotion})
                   <XAxis dataKey="date" tickFormatter={shortDate} tick={{fontSize: 12, fill: 'var(--muted)'}} axisLine={{stroke: 'var(--border)'}} tickLine={false} minTickGap={18}/>
                   <YAxis tickFormatter={compact} tick={{fontSize: 12, fill: 'var(--muted)'}} axisLine={false} tickLine={false} width={56}/>
                   <Tooltip content={<FlowTooltip currency={currency}/>} cursor={{stroke: 'var(--border-strong)', strokeWidth: 1}}/>
-                  <Line type="monotone" dataKey="income" name="Приход" stroke="var(--chart-income)" strokeWidth={2} dot={false} activeDot={{r: 5, strokeWidth: 2, stroke: 'var(--panel)'}} isAnimationActive={!reduceMotion}
+                  <Line type="linear" dataKey="income" name="Приход" stroke="var(--chart-income)" strokeWidth={2} dot={false} activeDot={{r: 5, strokeWidth: 2, stroke: 'var(--panel)'}} isAnimationActive={!reduceMotion}
                     label={({index, x, y}) => index === series.length - 1 ? <text key="li" x={x + 8} y={y} dy={4} fontSize={12} fill="var(--text)">Приход</text> : null}/>
-                  <Line type="monotone" dataKey="expense" name="Расход" stroke="var(--chart-expense)" strokeWidth={2} dot={false} activeDot={{r: 5, strokeWidth: 2, stroke: 'var(--panel)'}} isAnimationActive={!reduceMotion}
+                  <Line type="linear" dataKey="expense" name="Расход" stroke="var(--chart-expense)" strokeWidth={2} dot={false} activeDot={{r: 5, strokeWidth: 2, stroke: 'var(--panel)'}} isAnimationActive={!reduceMotion}
                     label={({index, x, y}) => index === series.length - 1 ? <text key="le" x={x + 8} y={y} dy={4} fontSize={12} fill="var(--text)">Расход</text> : null}/>
                 </LineChart>
               </ResponsiveContainer>

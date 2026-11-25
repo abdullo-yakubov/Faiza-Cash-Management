@@ -32,7 +32,7 @@ const toneIcons = {income: ArrowDownLeft, expense: ArrowUpRight};
  * KPI-плитка. kind: money | count. tone: neutral | income | expense | warning | danger | accent.
  * Цвет — не единственный носитель смысла: у прихода/расхода есть знак и иконка.
  */
-export function StatTile({label, value, currency, kind = 'money', tone = 'neutral', icon, hint, href, onClick, loading}) {
+export function StatTile({label, value, currency, kind = 'money', tone = 'neutral', icon, hint, href, onClick, loading, wide}) {
   const Icon = icon || toneIcons[tone];
   const sign = kind === 'money' && tone === 'income' ? '+ ' : kind === 'money' && tone === 'expense' ? '− ' : '';
   const body = <>
@@ -40,9 +40,9 @@ export function StatTile({label, value, currency, kind = 'money', tone = 'neutra
     {loading ? <Skeleton width="60%" height={28}/> : <strong className={'ui-stat-value tone-' + tone}>{sign}{kind === 'money' ? money(value) : (value ?? '—')}{kind === 'money' && currency ? <small> {currency}</small> : null}</strong>}
     {hint && <span className="ui-stat-hint">{hint}</span>}
   </>;
-  if (href) return <a className={'ui-stat ui-stat-link tone-' + tone} href={href}>{body}</a>;
-  if (onClick) return <button type="button" className={'ui-stat ui-stat-link tone-' + tone} onClick={onClick}>{body}</button>;
-  return <div className={'ui-stat tone-' + tone}>{body}</div>;
+  if (href) return <a className={'ui-stat ui-stat-link tone-' + tone + (wide ? ' ui-stat-wide' : '')} href={href}>{body}</a>;
+  if (onClick) return <button type="button" className={'ui-stat ui-stat-link tone-' + tone + (wide ? ' ui-stat-wide' : '')} onClick={onClick}>{body}</button>;
+  return <div className={'ui-stat tone-' + tone + (wide ? ' ui-stat-wide' : '')}>{body}</div>;
 }
 
 /** Статус-бейдж. tone: success | warning | danger | info | neutral | accent. */
