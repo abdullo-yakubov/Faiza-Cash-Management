@@ -121,6 +121,23 @@ namespace FaizaCash.Infrastructure.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("ApprovalComment")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ApprovalStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("none");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("CashboxCodeSnapshot")
                         .HasColumnType("text");
 
@@ -211,6 +228,8 @@ namespace FaizaCash.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ApprovedBy");
+
                     b.HasIndex("CategoryId");
 
                     b.HasIndex("CounterpartyId");
@@ -231,6 +250,9 @@ namespace FaizaCash.Infrastructure.Migrations
 
                     b.HasIndex("TransferId");
 
+                    b.HasIndex("ApprovalStatus", "CashboxId")
+                        .HasFilter("\"ApprovalStatus\" <> 'none'");
+
                     b.HasIndex("CashboxId", "DocumentNumber")
                         .IsUnique()
                         .HasFilter("\"DocumentNumber\" IS NOT NULL");
@@ -243,6 +265,8 @@ namespace FaizaCash.Infrastructure.Migrations
                     b.ToTable("Operations", t =>
                         {
                             t.HasCheckConstraint("CK_Amount", "\"Amount\" > 0 AND \"Amount\" <= 9999999999999999.99");
+
+                            t.HasCheckConstraint("CK_Operations_ApprovalStatus", "\"ApprovalStatus\" IN ('none','pending','approved','rejected')");
 
                             t.HasCheckConstraint("CK_Operations_PostingMetadata", "(\"Status\"='draft' AND \"DocumentNumber\" IS NULL AND \"PostingSeq\" IS NULL AND \"PostedAt\" IS NULL AND \"PostedBy\" IS NULL) OR (\"Status\"='posted' AND \"DocumentNumber\" IS NOT NULL AND \"PostingSeq\" IS NOT NULL AND \"PostedAt\" IS NOT NULL AND \"PostedBy\" IS NOT NULL)");
 
@@ -659,6 +683,10 @@ namespace FaizaCash.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<decimal?>("ExpenseApprovalThreshold")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -669,7 +697,10 @@ namespace FaizaCash.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Organizations");
+                    b.ToTable("Organizations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Organizations_ApprovalThreshold", "\"ExpenseApprovalThreshold\" IS NULL OR \"ExpenseApprovalThreshold\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("FaizaCash.Domain.PaymentAllocation", b =>
@@ -976,6 +1007,11 @@ namespace FaizaCash.Infrastructure.Migrations
 
             modelBuilder.Entity("FaizaCash.Domain.CashOperation", b =>
                 {
+                    b.HasOne("FaizaCash.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("FaizaCash.Domain.Cashbox", null)
                         .WithMany()
                         .HasForeignKey("CashboxId")

@@ -21,6 +21,10 @@ public sealed class LedgerService(CashDb db, Audit audit, ICashboxAccess access)
             if(operation.CreatedBy!=userId&&!privileged)throw new BusinessException("Можно проводить только собственный черновик",403);
             if(!box.Active)throw new BusinessException("Касса неактивна");
             if(!Money.IsValid(operation.Amount))throw new BusinessException("Недопустимая сумма",400);
+            // Согласование крупного расхода проверяется в той же Serializable-транзакции, что и проведение.
+            var approvalThreshold=await db.Organizations.Select(x=>x.ExpenseApprovalThreshold).SingleAsync(cancellationToken);
+            if(!ApprovalRules.CanPost(operation.Type,operation.Amount,approvalThreshold,operation.IsReversal,operation.ApprovalStatus))
+                throw new BusinessException("Расход требует согласования руководителя.",409);
             var today=DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow,"Asia/Dushanbe"));
             if(operation.Date>today)throw new BusinessException("Будущая дата недопустима",400);
             var opening=await db.Openings.SingleOrDefaultAsync(x=>x.CashboxId==box.Id,cancellationToken);

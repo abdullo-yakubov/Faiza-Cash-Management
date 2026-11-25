@@ -16,6 +16,7 @@ const commands=[
  [process.execPath,['tests/integration/p1.mjs']],
  [process.execPath,['tests/integration/demo-seed.mjs']],
  [process.execPath,['tests/integration/p2.mjs']],
+ [process.execPath,['tests/integration/wave1.mjs']],
  [process.execPath,['tests/e2e.mjs']]
 ];
 // Continue after a failing suite so one run reports every result; exit non-zero if any failed.

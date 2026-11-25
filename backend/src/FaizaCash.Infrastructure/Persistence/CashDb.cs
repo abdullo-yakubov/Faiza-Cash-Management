@@ -31,6 +31,8 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<CashAccess>().HasIndex(x=>x.CashboxId);
 
         b.Entity<Organization>().HasKey(x=>x.Id);
+        b.Entity<Organization>().Property(x=>x.ExpenseApprovalThreshold).HasPrecision(18,2);
+        b.Entity<Organization>().ToTable(t=>t.HasCheckConstraint("CK_Organizations_ApprovalThreshold","\"ExpenseApprovalThreshold\" IS NULL OR \"ExpenseApprovalThreshold\" > 0"));
         b.Entity<User>().HasIndex(x=>x.Login).IsUnique();
         b.Entity<Role>().HasIndex(x=>x.Code).IsUnique();
         b.Entity<UserRole>().HasKey(x=>new{x.UserId,x.RoleId});
@@ -85,6 +87,10 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
         b.Entity<CashOperation>().HasOne<CashOperation>().WithMany().HasForeignKey(x=>x.ReversalId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashOperation>().HasOne(x=>x.Transfer).WithMany().HasForeignKey(x=>x.TransferId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CashOperation>().Property(x=>x.Version).IsConcurrencyToken();
+        b.Entity<CashOperation>().Property(x=>x.ApprovalStatus).HasMaxLength(16).HasDefaultValue("none");
+        b.Entity<CashOperation>().Property(x=>x.ApprovalComment).HasMaxLength(500);
+        b.Entity<CashOperation>().HasOne<User>().WithMany().HasForeignKey(x=>x.ApprovedBy).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CashOperation>().HasIndex(x=>new{x.ApprovalStatus,x.CashboxId}).HasFilter("\"ApprovalStatus\" <> 'none'");
         b.Entity<CashOperation>().Property(x=>x.Amount).HasPrecision(18,2);
         b.Entity<CashOperation>().HasIndex(x=>new{x.CreatedBy,x.RequestKey}).IsUnique();
         b.Entity<CashOperation>().HasIndex(x=>x.ReversalOfId).IsUnique().HasFilter("\"ReversalOfId\" IS NOT NULL");
@@ -97,6 +103,7 @@ public class CashDb(DbContextOptions<CashDb> options, ICurrentActor? actor = nul
             t.HasCheckConstraint("CK_Amount","\"Amount\" > 0 AND \"Amount\" <= 9999999999999999.99");
             t.HasCheckConstraint("CK_Type","\"Type\" IN ('income','expense')");
             t.HasCheckConstraint("CK_Operations_Status","\"Status\" IN ('draft','posted')");
+            t.HasCheckConstraint("CK_Operations_ApprovalStatus","\"ApprovalStatus\" IN ('none','pending','approved','rejected')");
             t.HasCheckConstraint("CK_Operations_PostingMetadata","(\"Status\"='draft' AND \"DocumentNumber\" IS NULL AND \"PostingSeq\" IS NULL AND \"PostedAt\" IS NULL AND \"PostedBy\" IS NULL) OR (\"Status\"='posted' AND \"DocumentNumber\" IS NOT NULL AND \"PostingSeq\" IS NOT NULL AND \"PostedAt\" IS NOT NULL AND \"PostedBy\" IS NOT NULL)");
             t.HasCheckConstraint("CK_Operations_Reversal","\"IsReversal\" = (\"ReversalOfId\" IS NOT NULL) AND (NOT \"IsReversal\" OR nullif(btrim(\"ReversalReason\"),'') IS NOT NULL)");
         });

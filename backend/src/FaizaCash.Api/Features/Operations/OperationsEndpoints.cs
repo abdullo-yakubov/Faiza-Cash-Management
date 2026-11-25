@@ -55,7 +55,8 @@ operations.MapPatch("/{id:long}", [Authorize(Roles = CashOperators)] async (long
     await access.Require(ctx.UserId(),input.CashboxId,ctx.RequestAborted);
     var bad = await Validate(input, db, o); if (bad is not null) return bad;
     o.CashboxId = input.CashboxId; o.Date = input.Date; o.Type = input.Type!; o.Amount = input.Amount; o.Description = input.Description!.Trim(); o.CategoryId = input.CategoryId; o.CounterpartyId = input.CounterpartyId; o.DocumentTypeId = input.DocumentTypeId; await CaptureDocumentSnapshot(db,o,ctx.RequestAborted); o.Version++; o.UpdatedAt = DateTime.UtcNow;
-    await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_updated", "operation", id, new { }); await tx.CommitAsync(); return Results.Ok(o.View());
+    var approvalBefore = o.ApprovalStatus; o.ApprovalStatus = ApprovalRules.None; o.ApprovedBy = null; o.ApprovedAt = null; o.ApprovalComment = null;
+    await db.SaveChangesAsync(); await audit.Add(ctx.UserId(), "operation_updated", "operation", id, new { }); if (approvalBefore != ApprovalRules.None) await audit.Add(ctx.UserId(), "approval_reset", "operation", id, new { before = approvalBefore }); await tx.CommitAsync(); return Results.Ok(o.View());
 });
 operations.MapDelete("/{id:long}", [Authorize(Roles = CashOperators)] async (long id, int version, HttpContext ctx, CashDb db, Audit audit, ICashboxAccess access) =>
 {
