@@ -20,3 +20,17 @@ jobs:
       - run: npm --prefix frontend test
       - run: npm --prefix frontend run build
       - run: npm --prefix frontend audit --audit-level=high
+
+      # --- Качество кода: режим предупреждения до общего переформатирования ---
+      # Шаги не блокируют CI (continue-on-error). После переформатирования
+      # (отдельный коммит после слияния веток волны 1) флаг нужно убрать.
+      - name: dotnet format (проверка, предупреждение)
+        continue-on-error: true
+        run: dotnet format backend/FaizaCash.sln --verify-no-changes --no-restore --verbosity minimal
+
+      - name: ESLint frontend (предупреждение)
+        continue-on-error: true
+        run: |
+          npm install --no-save --no-package-lock --no-audit --no-fund \
+            eslint@9 @eslint/js@9 globals@16 eslint-plugin-react@7 eslint-plugin-react-hooks@5
+          npx eslint frontend/src frontend/tests

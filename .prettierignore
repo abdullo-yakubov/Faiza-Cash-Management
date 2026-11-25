@@ -1,0 +1,13 @@
+# Prettier применяется только к frontend и только после общего решения о переформатировании
+# (массовое переформатирование сломает слияние параллельных веток). См. REPORT-C.md.
+**/node_modules/
+**/dist/
+**/bin/
+**/obj/
+.runtime/
+backend/
+deploy/
+docs/
+*.md
+package-lock.json
+**/package-lock.json
