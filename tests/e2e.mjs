@@ -52,6 +52,12 @@ try{
   const cashier=await request('/users',{method:'POST',body:{login:'e2e-cashier',fullName:'E2E Cashier',password:cashierPassword,roles:['cashier'],mustChangePassword:false}});
   const accountant=await request('/users',{method:'POST',body:{login:'e2e-accountant',fullName:'E2E Accountant',password:accountantPassword,roles:['accountant'],mustChangePassword:false}});
   await request('/access',{method:'POST',body:{userId:cashier.id,cashboxId:box.id}});await request('/access',{method:'POST',body:{userId:accountant.id,cashboxId:box.id}});
+  // Волна 1: отдельная касса для рабочего места кассира и руководитель для согласования расходов.
+  const managerPassword='ManagerE2E2026A';
+  const waveBox=await request('/cashboxes',{method:'POST',body:{code:'E2E-W1',name:'E2E wave1 box',currencyId:currencies[0].id,balanceLimit:null,branchId:1}});
+  const manager=await request('/users',{method:'POST',body:{login:'e2e-manager',fullName:'E2E Manager',password:managerPassword,roles:['manager'],mustChangePassword:false}});
+  await request('/access',{method:'POST',body:{userId:cashier.id,cashboxId:waveBox.id}});await request('/access',{method:'POST',body:{userId:manager.id,cashboxId:waveBox.id}});
+  const waveExpense=(await request('/categories')).find(x=>x.name==='E2E expense');
   const postedCount=(description)=>runSql(`SELECT count(*) FROM "Operations" WHERE "Description"='${description}' AND "Status"='posted'`);
   const draftCount=(description)=>runSql(`SELECT count(*) FROM "Operations" WHERE "Description"='${description}'`);
   webServer=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5174','--strictPort'],{cwd:'frontend',env:{...process.env,API_PROXY:apiBase},stdio:['ignore',fs.openSync('.runtime/e2e-vite.log','w'),'inherit']});
@@ -150,11 +156,56 @@ try{
     await page.close();
   });
 
+  await test('wave1 cashier workplace: open shift → income 1 200 → close shift with banknote count',async()=>{
+    const page=await browser.newPage({viewport:{width:390,height:844}});await login(page,'e2e-cashier',cashierPassword);
+    await page.goto(`${webBase}/#/cashier`);await page.waitForSelector('.cashier-page');
+    await page.getByLabel('Касса',{exact:true}).selectOption(String(waveBox.id));
+    await page.getByLabel(/Начальный остаток/).fill('0');
+    await page.getByRole('button',{name:'Открыть смену'}).click();await page.getByText(/Смена открыта/).first().waitFor();
+    await page.getByRole('button',{name:/^Приход/}).click();
+    await page.locator('#field-amount').fill('1200');await page.selectOption('#field-categoryId',{label:'E2E income'});await page.locator('#field-description').fill('E2E wave1 income');
+    await page.getByRole('button',{name:'Создать черновик'}).click();
+    await page.getByRole('button',{name:'Провести'}).click();await page.getByRole('button',{name:'Подтвердить проведение'}).click();
+    await page.getByText('Документ проведён. Остаток обновлён.').waitFor();await page.getByRole('button',{name:'Закрыть диалог'}).click();
+    await page.getByRole('button',{name:'Закрыть смену с пересчётом'}).click();
+    const drawer=page.getByRole('dialog');await drawer.getByLabel('Количество: 200,00 TJS').fill('6');
+    await drawer.getByText('Совпадает с расчётом').waitFor();
+    await drawer.getByRole('button',{name:'Закрыть смену'}).click();
+    await page.getByText(/Смена закрыта/).first().waitFor();
+    const shifts=await request(`/shifts?cashboxId=${waveBox.id}`);const closed=(shifts.items||shifts).find(x=>x.status==='closed');
+    assert.equal(closed.closingBalance,'1200.00');
+    await page.close();
+  });
+
+  await test('wave1 manager approves an expense above the threshold; author cannot post before approval',async()=>{
+    const org=await request('/settings');await request('/settings',{method:'PUT',body:{...org,expenseApprovalThreshold:'500.00'}});
+    try{
+      const cashierToken=(await request('/auth/login',{method:'POST',auth:null,body:{login:'e2e-cashier',password:cashierPassword}})).accessToken;
+      const draft=await request('/operations',{method:'POST',auth:cashierToken,body:{type:'expense',date:new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Dushanbe'}).format(new Date()),cashboxId:waveBox.id,amount:'600.00',categoryId:waveExpense.id,counterpartyId:null,description:'E2E wave1 approval',documentTypeId:null,requestKey:crypto.randomUUID()}});
+      const cashierPage=await browser.newPage({viewport:{width:1280,height:800}});await login(cashierPage,'e2e-cashier',cashierPassword);
+      await cashierPage.goto(`${webBase}/#/operations?box=${waveBox.id}&status=draft`);
+      await cashierPage.getByRole('button',{name:`Черновик №${draft.id}`}).first().click();
+      assert.equal(await cashierPage.getByRole('button',{name:'Провести'}).isDisabled(),true,'расход выше порога нельзя провести без согласования');
+      await cashierPage.getByRole('button',{name:'Отправить на согласование'}).click();
+      await cashierPage.getByText('На согласовании').first().waitFor();await cashierPage.close();
+      const managerPage=await browser.newPage({viewport:{width:1280,height:800}});await login(managerPage,'e2e-manager',managerPassword);
+      await managerPage.locator('a[href="#/approvals"]').click();
+      const row=managerPage.locator('tr').filter({hasText:'E2E wave1 approval'});
+      await row.getByRole('button',{name:'Согласовать'}).click();
+      const dialog=managerPage.getByRole('dialog');await dialog.locator('textarea').fill('E2E: согласовано');
+      await dialog.getByRole('button',{name:'Согласовать'}).click();
+      await managerPage.getByText(new RegExp(`Расход №${draft.id} согласован`)).waitFor();
+      const after=await request(`/operations/${draft.id}`);
+      assert.equal(after.approvalStatus,'approved');assert.equal(after.approvalComment,'E2E: согласовано');
+      await managerPage.close();
+    }finally{const org=await request('/settings');await request('/settings',{method:'PUT',body:{...org,expenseApprovalThreshold:null}});}
+  });
+
   await test('accessibility (WCAG 2.2 A/AA, automated part): skip link, names, visible keyboard focus, landmarks, reduced motion',async()=>{
     const page=await browser.newPage({viewport:{width:1280,height:800}});await page.emulateMedia({reducedMotion:'reduce'});
     await login(page,'e2e-admin',adminPassword);
     const problems=[];
-    for(const route of ['overview','operations','shifts','cashboxes','debts','reports','audit','backups','users']){
+    for(const route of ['overview','operations','shifts','cashboxes','debts','reports','audit','backups','users','admin','approvals','advances','inventory','exchange-rates','settings']){
       await page.goto(`${webBase}/#/${route}`);await page.waitForSelector('#main-title');await page.waitForLoadState('networkidle');
       const found=await page.evaluate(()=>{
         const visible=el=>{const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';};
