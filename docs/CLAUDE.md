@@ -1,6 +1,6 @@
 # CLAUDE.md — FAIZA GOLD (FaizaCash)
 
-Дипломный проект: система кассового учёта ООО «Фаиза». Полное ТЗ — [docs/ТЗ.md](ТЗ.md). Общаться с пользователем на русском языке.
+Дипломный проект: система кассового учёта ООО «Фаиза». Требования (целевое состояние) — [docs/ТЗ_ГОСТ_34.602-2020.md](ТЗ_ГОСТ_34.602-2020.md); описание базовой версии — [docs/ТЗ.md](ТЗ.md). Тесты — [docs/TESTING.md](TESTING.md), решения — [docs/adr/](adr/README.md). Общаться с пользователем на русском языке.
 
 ## Стек
 - Backend: ASP.NET Core 10 Minimal API, EF Core 10 + Npgsql, PostgreSQL 18, QuestPDF, xUnit.
@@ -44,7 +44,7 @@ deploy/                               Caddyfile, SQL роли runtime
 
 ## Соглашения
 - Ошибки API — `Results.Problem(...)` / `BusinessException` с понятным текстом **на русском**, коды: 400 данные, 403 доступ, 404, 409 бизнес-конфликт.
-- Роли: `admin`, `accountant`, `cashier`, `manager`, `auditor` — проверка через `[Authorize(Roles=...)]` у endpoint-а. Матрица прав — ТЗ §3.2.
+- Роли: `admin`, `accountant`, `cashier`, `manager`, `auditor` — проверка через `[Authorize(Roles=...)]` у endpoint-а. Матрица прав — приложение А ТЗ по ГОСТ (admin не выполняет финансовых операций, ADR-0007).
 - Интерфейс полностью на русском; цвета и отступы — через `styles/tokens.css`.
 - Новые маршруты frontend добавлять в `pages` в `frontend/src/utils/route.js`.
 - Тесты: бизнес-правило → unit в `backend/tests`; сценарий API → соответствующий набор в `tests/`.
@@ -56,5 +56,4 @@ deploy/                               Caddyfile, SQL роли runtime
 
 ## Известные хвосты
 - `ApiEndpoints.cs` очень большой — при правках искать обработчик по маршруту (`MapPost("/api/...`).
-- README ссылается на несуществующий `docs/TESTING.md`.
 - В `backend/src/FaizaCash.Api/` лежит лишний `*.tmp`.
