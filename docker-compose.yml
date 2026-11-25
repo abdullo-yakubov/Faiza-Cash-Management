@@ -18,6 +18,7 @@ services:
       - backup-data:/var/lib/faiza/backups
     environment:
       ConnectionStrings__CashDb: Host=db;Database=faiza_cash;Username=faiza_app;Password=${POSTGRES_PASSWORD}
+      Backups__EncryptionKey: ${BACKUPS__ENCRYPTIONKEY:-}
       Jwt__Key: ${JWT__KEY:?Set JWT__KEY}
       Jwt__Issuer: FaizaCash
       Jwt__Audience: FaizaCash

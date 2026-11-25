@@ -29,7 +29,9 @@ public sealed class AccessMiddleware(RequestDelegate next)
         if(c.Request.Method=="GET" && string.Equals(path,"/api/cashboxes",StringComparison.OrdinalIgnoreCase))
         {
             var ids=db.CashAccess.Where(a=>a.UserId==user.Id).Select(a=>a.CashboxId);
-            await Results.Ok(await db.Cashboxes.Where(x=>ids.Contains(x.Id)).Select(x=>new {x.Id,x.Code,x.Name,currency=x.Currency.Code,x.Active,x.BalanceLimit}).ToListAsync()).ExecuteAsync(c); return;
+            bool? active=bool.TryParse(c.Request.Query["active"],out var a)?a:null;
+            long? branch=long.TryParse(c.Request.Query["branchId"],out var br)?br:null;
+            await Results.Ok(await db.Cashboxes.Where(x=>ids.Contains(x.Id)&&(!active.HasValue||x.Active==active)&&(!branch.HasValue||x.BranchId==branch)).OrderBy(x=>x.Id).Select(x=>new {x.Id,x.Code,x.Name,branchId=x.BranchId,branch=x.Branch.Name,city=x.Branch.City,currency=x.Currency.Code,x.BalanceLimit,x.Active,openingDate=x.Opening==null?(DateOnly?)null:x.Opening.Date,openingAmount=x.Opening==null?(decimal?)null:x.Opening.Amount}).ToListAsync()).ExecuteAsync(c); return;
         }
         await next(c);
     }
